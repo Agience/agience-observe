@@ -251,7 +251,18 @@ def cmd_install(args: argparse.Namespace) -> int:
     seed_trust(layout)
 
     say("done. start the node with:")
-    say(f"    python {Path(__file__).name} start --home {layout.home}")
+    # `--home` is a GLOBAL option and must precede the subcommand: `agience --home X start`, not
+    # `agience start --home X`. argparse rejects the latter with "unrecognized arguments", so
+    # printing it made the installer's last line a command that does not run — the first thing a
+    # new operator tries, and it errors. Only shown when the home is not the default, because the
+    # default needs no flag at all and the shorter line is the one worth copying.
+    # `.resolve()` on both sides, because `Layout.__init__` resolves and an unresolved `~` expansion
+    # compares unequal to it on any path with a symlink or a short name in it — which would print
+    # the long form to someone who installed at the default and does not need the flag.
+    if layout.home == Path("~/.agience").expanduser().resolve():
+        say(f"    python {Path(__file__).name} start")
+    else:
+        say(f"    python {Path(__file__).name} --home {layout.home} start")
     return 0
 
 

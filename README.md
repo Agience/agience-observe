@@ -13,7 +13,22 @@ pull.
 
 ## Install a node
 
-Two ways in, the same shape underneath.
+From nothing, with no checkout:
+
+```bash
+curl -fsSL https://get.agience.ai/install.sh | sh     # macOS, Linux
+```
+
+```powershell
+irm https://get.agience.ai/install.ps1 | iex          # Windows
+```
+
+[`install.sh`](package/install/install.sh) and [`install.ps1`](package/install/install.ps1) find a
+Python 3.11+, fetch this repository into `~/.agience/src`, and hand off to the installer below. They
+hold no copy of the install logic — a bootstrap that knows how to build an environment is a second
+installer that drifts from the first, silently, because neither fails when the other changes.
+
+From a checkout, which is the same thing without the fetch:
 
 ```bash
 python package/install/cli/agience.py install   # any platform
@@ -25,12 +40,18 @@ python package/install/cli/agience.py status    # what is installed, and where
 package\manager\installer\build.ps1    # Windows: builds the MSI into installer\out\
 ```
 
-Both find a Python, build a private environment, install the service distributions into it, generate
-the key material and seed the trust.
+All of them find a Python, build a private environment, install the service distributions into it,
+generate the key material and seed the trust.
 
-Everything lands under one directory — `--home`, default `~/.agience` — holding the virtualenv, the
-key material and the databases. Removing that directory removes the node and takes nothing else with
-it.
+Everything lands under one directory — `--home`, default `~/.agience` — holding the source checkout,
+the virtualenv, the key material and the databases. Removing that directory removes the node and
+takes nothing else with it.
+
+**`--home` is a global option and precedes the subcommand**: `agience.py --home <dir> start`, not
+`agience.py start --home <dir>`. argparse rejects the second form.
+
+A full run from a clean clone was verified on 2026-09-09: five distributions installed from git, the
+trust seeded, and all four services reporting `serving` on 8080, 8082, 8085 and 8091.
 
 **A virtualenv, never the machine's Python.** The services pin exact versions, and installing those
 into whatever interpreter is already present breaks unrelated work on the machine.
@@ -110,3 +131,10 @@ Security issues: email **connect@agience.ai** rather than opening a public issue
 
 Dual-licensed — see [`LICENSE`](LICENSE), [`COMMERCIAL_LICENSE.md`](COMMERCIAL_LICENSE.md),
 [`NOTICE`](NOTICE) and [`CLA.md`](CLA.md).
+
+## Declaration of generative AI use
+
+The author used Anthropic's Claude Opus (versions 4.8 and 5) in the preparation of this work. Its
+contribution was to write code, and to generate and validate content. The ideas, the construction
+and the claims are the author's. No other generative AI tool was used. The author reviewed and
+edited all output and takes full responsibility for the content of this publication.
