@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+
+  <!-- ⛔ asInvoker, AND IT IS A DESIGN STATEMENT RATHER THAN A DEFAULT.
+       Everything this application does is unprivileged by construction: reading the agent's
+       announcement out of the user's own profile, an authenticated GET on loopback, and
+       Start-ScheduledTask, which the supervisor's own notes record as needing no elevation. The one
+       action that genuinely requires admin — registering the at-boot S4U unit — is deliberately not
+       here, so that a tray icon is never a reason to run something elevated all day. -->
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <!-- ⚠ NO DPI SETTINGS HERE. The WinForms SDK refuses a manifest that carries them (WFAC010) and
+       requires `ApplicationHighDpiMode` in the project instead, so that the generated
+       `ApplicationConfiguration.Initialize()` and the manifest cannot end up disagreeing. It is set
+       to PerMonitorV2 in Agience.Manager.csproj. -->
+
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10/11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
+    </application>
+  </compatibility>
+
+</assembly>

@@ -1,0 +1,80 @@
+name: ci
+
+# Two suites on two operating systems, because this repository holds two things that fail
+# differently: the cross-platform installer and relay host (Python, Linux) and the Windows tray
+# application that supervises the services (C#, Windows).
+#
+# There is no `publish.yml` beside this one. Nothing here goes to an index — a node is installed
+# from a checkout, and the tray application ships as an MSI built by `installer/build.ps1`.
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+  workflow_dispatch: {}
+
+jobs:
+  # The installer CLI and the desktop relay host.
+  #
+  # The dependency list is written out rather than installed from
+  # `package/hosts/desktop/pyproject.toml`, and that is deliberate. Two of the declared runtime
+  # dependencies — `github-copilot-sdk` and `amazon-transcribe` — are not reached by any test here,
+  # and installing them would make an unrelated upstream break read as a failure of this repository.
+  # What the tests actually import is what is installed.
+  #
+  # `cryptography` and `pytest-asyncio` are imported by the suite and are declared by NEITHER
+  # pyproject in this repository. They are pinned here so the run is reproducible; the declaration
+  # gap is real and belongs in `package/hosts/desktop/pyproject.toml`.
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install pytest pytest-asyncio cryptography fastapi uvicorn "mcp[cli]>=1.6.0" httpx websockets
+      - name: Run the suite
+        run: python -m pytest -q
+
+      # `package/install/cli/agience.py` runs BEFORE there is an environment to install into, so it
+      # may import nothing but the standard library. That rule is stated in CONTRIBUTING.md and is
+      # otherwise unenforced: the suite above runs with every dependency present, so an added import
+      # would pass there and fail on a bare machine at the one moment a user cannot recover from.
+      #
+      # `init.py` beside it is NOT covered by this and must not be: it generates key material after
+      # the virtualenv exists, and it imports `cryptography` on purpose.
+      - name: The installer CLI is stdlib only
+        run: |
+          python - <<'PY'
+          import ast, sys, pathlib
+          src = pathlib.Path("package/install/cli/agience.py")
+          tree = ast.parse(src.read_text(encoding="utf-8"))
+          roots = set()
+          for node in ast.walk(tree):
+              if isinstance(node, ast.Import):
+                  roots.update(a.name.split(".")[0] for a in node.names)
+              elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                  roots.add(node.module.split(".")[0])
+          extra = sorted(r for r in roots if r not in sys.stdlib_module_names)
+          if extra:
+              print(f"::error file={src}::imports outside the standard library: {', '.join(extra)}")
+              raise SystemExit(1)
+          print(f"{src}: {len(roots)} imports, all stdlib")
+          PY
+
+  # The tray application. `net8.0-windows` is a Windows-only target framework — it will not build on
+  # ubuntu — and the process model this application exists to provide (the services are its children,
+  # in its job object, and die with it) is a Windows job-object behaviour that only a Windows runner
+  # exercises.
+  manager:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Build
+        run: dotnet build package/manager/src/Agience.Manager/Agience.Manager.csproj -c Release --nologo
+      - name: Test
+        run: dotnet test package/manager/tests/Agience.Manager.Tests/Agience.Manager.Tests.csproj -c Release --nologo

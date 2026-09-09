@@ -1,0 +1,17 @@
+# Build output. The published binary is an artifact, not source.
+bin/
+obj/
+
+# The MSI and its publish tree are artifacts, not source. `installer/build.ps1` makes both, and a
+# 63 MB package committed once is 63 MB in the history forever.
+installer/out/
+installer/obj/
+
+# Generated from `installer/agience-logo.png` by `installer/make-icon.ps1` on every build. The PNG
+# is the source and IS committed — it is the brand mark, it comes from outside this repository, and
+# a build that reached out to one workstation's Development folder would work on exactly one
+# machine. The .ico derived from it is an artifact.
+installer/agience.ico
+
+# The WiX extension cache, restored by `dotnet tool restore` + `dotnet wix extension add`.
+.wix/

@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  Agience.wxs — the MSI.
+
+  ⛔ ONE FILE IS INSTALLED, AND THAT IS THE WHOLE DESIGN. `Agience.exe` is published
+  self-contained and single-file, so this package carries no .NET prerequisite, no merge module and
+  no component rules to get wrong. Everything else the application needs — the Python environment,
+  the keys, the stores — is built on the machine, under the user's profile, by the application
+  itself. An MSI that shipped those would be shipping trees it did not author and cannot repair.
+
+  ⚠ THE DATA IS NOT REFERENCED HERE AT ALL, WHICH IS WHAT MAKES "KEEP MY DATA" THE DEFAULT. A plain
+  uninstall — from Add/Remove Programs, from `msiexec /x`, from anywhere — removes this one file and
+  the shortcuts, and cannot touch %LOCALAPPDATA%\Agience because it does not know it exists. Choosing
+  to delete the data is done in the application's own Remove page, before it hands over to msiexec.
+
+  Build:  installer\build.ps1
+-->
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <!--
+    ⛔ UpgradeCode IS FIXED FOREVER. It is how Windows knows that version 0.2 is an upgrade of 0.1
+    rather than a second product. Changing it leaves both installed, both tray icons running, and
+    both sets of services fighting for the same three ports.
+
+    ⚠ ProductCode (`Id` below) is the value `Installation.ProductCode` in the application must
+    match — the tray's own "Remove" page hands it to msiexec. Held to `*` it would be regenerated on
+    every build and the application's uninstall button would silently uninstall nothing.
+  -->
+  <Package Name="Agience"
+           Manufacturer="Ikailo Inc."
+           Version="0.1.0.0"
+           UpgradeCode="6F5A4E31-2C7D-4A19-8B63-0E9F4D2A5C71"
+           ProductCode="9C1B2F60-3F2E-4C4B-9F1A-1D5E2A6B7C80"
+           Language="1033"
+           Scope="perMachine"
+           Compressed="yes">
+    <!--
+      ⛔ perMachine [John, 2026-09-02: "yes, per machine, UAC prompt is fine"]. It installs into
+      Program Files, registers under HKLM, and asks for administrator once at install time.
+
+      ⚑ THE OTHER TWO SCOPES WERE BUILT AND INSTALLED FIRST, AND BOTH PRODUCED AN INCOHERENT
+      Add/Remove Programs ENTRY on Windows 11 26200:
+
+        perUserOrMachine  resolved INSTALLFOLDER to the per-user Programs folder while registering
+                          the product under HKLM — a machine-wide entry pointing into one user's
+                          profile: uninstallable by one account, listed for every account.
+
+        perUser           installed unelevated and worked end to end, but this Windows STILL wrote
+                          the Add/Remove Programs values under HKLM, and ARPPRODUCTICON produced no
+                          DisplayIcon at all — the entry had a name, a publisher, a version and a
+                          working uninstall, and a blank tile. Writing DisplayIcon by hand made it
+                          worse: it landed in HKCU while the rest of the entry was in HKLM,
+                          splitting one program into a named entry with no icon and an icon with no
+                          name.
+
+      Registering machine-wide and installing into Program Files is the arrangement where those two
+      facts agree, and the one Windows expects.
+
+      ⚠ THE APPLICATION ITSELF STILL RUNS UNELEVATED (`asInvoker` in app.manifest). Nothing it does
+      at run time needs administrator: the tray runs as whoever logged in, the Python environment
+      and every store live under THAT person's profile, and the services bind loopback ports above
+      1024. Installing machine-wide is not a reason to run a tray icon elevated all day — and it is
+      why the data survives an uninstall: the MSI never learns where it is.
+    -->
+
+    <!--
+      ⚠ ALLOW A DOWNGRADE TO SAY SO RATHER THAN FAIL SILENTLY. The default message is unreadable;
+      this one names the actual situation, which is that somebody is installing an older build over
+      a newer one.
+    -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Agience is already installed. Remove it first from Settings &gt; Apps." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- What Add/Remove Programs shows beside the entry. Without these it shows a name and nothing
+         else, which is how a program comes to look like something the user did not install.
+
+         The Icon's Id carries the .ico extension because WiX stores it under this Id verbatim and
+         a DisplayIcon whose file has no recognised extension will not render. It is also what the
+         Start menu shortcut uses, and there it DOES take effect — see the scope note above for
+         why ARPPRODUCTICON does not. -->
+    <Icon Id="AgienceIcon.ico" SourceFile="agience.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AgienceIcon.ico" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/Agience/agience-observe" />
+    <Property Id="ARPURLINFOABOUT" Value="https://agience.ai" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <!-- ⚠ ARPInstallLocation IS NOT SET BY WINDOWS INSTALLER ON ITS OWN. Left out, the "Installed
+         location" column in Settings > Apps is blank and nothing on the machine records where the
+         program went — which is the first thing anyone looks for when an uninstall has half
+         failed. It has to be set AFTER CostFinalize, because INSTALLFOLDER has no value before the
+         directory table is resolved. -->
+    <SetProperty Id="ARPINSTALLLOCATION"
+                 Value="[INSTALLFOLDER]"
+                 After="CostFinalize"
+                 Sequence="both" />
+
+    <!--
+      ⛔ THE RUNNING TRAY IS ASKED TO STOP BEFORE ANYTHING IS REMOVED. It holds every configured
+      Origin and Mantle as a child process in a job object: deleting the executable underneath it
+      leaves a tray icon whose exe is gone and a set of services nothing will admit to owning,
+      holding the ports the next install cannot bind.
+
+      ⚠ `Impersonate="yes"` AND NOT DEFERRED. The tray runs as the logged-in user, and the shutdown
+      event is in that user's session namespace (`Local\`); a deferred custom action runs as
+      SYSTEM, where the event does not exist and the tray is never asked at all.
+
+      ⚠ `Return="ignore"`. The verbs here are "not installed yet", "not running", and "running" —
+      only the last has anything to do, and neither of the others is a reason to abort an uninstall.
+    -->
+    <SetProperty Id="StopAgience"
+                 Value="&quot;[#ManagerExe]&quot; --shutdown"
+                 Before="StopAgience"
+                 Sequence="execute" />
+
+    <CustomAction Id="StopAgience"
+                  DllEntry="WixQuietExec"
+                  BinaryRef="Wix4UtilCA_X86"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <!-- Before RemoveFiles, so the file is still there to run, and gated on this actually being
+           a removal rather than a first install. -->
+      <Custom Action="StopAgience" Before="RemoveFiles" Condition="Installed" />
+    </InstallExecuteSequence>
+
+    <!--
+      ⚠ Program Files IS NOT WRITABLE WITHOUT ADMINISTRATOR, which is exactly why this package is
+      perMachine. MEASURED: an unelevated install into it fails with error 1925 and rolls back to
+      1603, so `msiexec /qn` from an unprivileged shell cannot install this — it needs the UAC
+      prompt a double-click gives it, or an already-elevated command line.
+    -->
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="Agience" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ShortcutFolder" Name="Agience" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <Component Id="ManagerExeComponent" Guid="B2E7C41D-9A55-4E08-A3F6-7C1B0D8E62A4">
+        <File Id="ManagerExe"
+              Source="$(var.PublishDir)\Agience.exe"
+              KeyPath="yes" />
+
+        <!--
+          ⛔ DisplayIcon IS WRITTEN HERE BECAUSE ARPPRODUCTICON DOES NOT WRITE IT. MEASURED four
+          times, across every installer scope: the MSI's Icon table carries `AgienceIcon.ico` and
+          its Property table carries `ARPPRODUCTICON = AgienceIcon.ico`, and the DisplayIcon value
+          in the registry comes back EMPTY every time — so Settings > Apps listed Agience with a
+          blank tile. Nothing warns about it, and the package looks correct in every place you would
+          think to check.
+
+          ⚠ IT IS SAFE HERE ONLY BECAUSE THE PACKAGE IS perMachine. The product registers in HKLM,
+          so this value lands in the SAME entry as the name and the version rather than splitting
+          the program across two hives — which is exactly what the per-user attempt did.
+
+          ⚠ IT POINTS AT THE EXECUTABLE, NOT AT A CACHED .ico. The exe already carries the mark
+          (ApplicationIcon in the .csproj), so there is one icon on this machine rather than two
+          that can disagree, and it cannot outlive the program it names.
+        -->
+        <RegistryValue Root="HKLM"
+                       Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\{9C1B2F60-3F2E-4C4B-9F1A-1D5E2A6B7C80}"
+                       Name="DisplayIcon"
+                       Type="string"
+                       Value="[#ManagerExe],0" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="ShortcutComponents" Directory="ShortcutFolder">
+      <Component Id="ShortcutComponent" Guid="4D3A8F92-16B0-4C77-95E2-A8D5F03B1E68">
+        <Shortcut Id="StartMenuShortcut"
+                  Name="Agience"
+                  Description="Start, stop and configure Agience: Origin and Mantle"
+                  Target="[#ManagerExe]"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AgienceIcon.ico" />
+
+        <RemoveFolder Id="RemoveShortcutFolder" Directory="ShortcutFolder" On="uninstall" />
+
+        <!--
+          ⚠ THE KEYPATH IS A REGISTRY VALUE, NOT THE SHORTCUT, and it is in HKLM because this is a
+          perMachine package writing to the All Users start menu. An HKCU keypath in a machine-wide
+          component is the classic cause of Windows Installer re-running a repair every time an
+          unrelated program launches, and it would make one user's hive decide whether a shortcut
+          every account can see still exists.
+
+          ⛔ IT IS NOT THE Run KEY. Starting at logon is written by the APPLICATION, from its own
+          checkbox, so it belongs to the person who ticked it. An installer-written Run entry would
+          start a tray icon in every account on the machine — including ones that never asked —
+          and survive being unticked.
+        -->
+        <RegistryValue Root="HKLM"
+                       Key="Software\Ikailo\Agience"
+                       Name="Installed"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Main" Title="Agience" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="ShortcutComponents" />
+    </Feature>
+
+    <!--
+      ⚠ LAUNCH AFTER INSTALL IS OFFERED, NOT ASSUMED. The first run opens the setup page and starts
+      a multi-minute pip install; doing that silently behind a finished installer is how a machine
+      appears to hang for no reason a person can see.
+    -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Start Agience and finish setup" />
+    <Property Id="WixShellExecTarget" Value="[#ManagerExe]" />
+
+    <CustomAction Id="LaunchApplication"
+                  DllEntry="WixShellExec"
+                  BinaryRef="Wix4UtilCA_X86"
+                  Impersonate="yes"
+                  Return="ignore" />
+
+    <ui:WixUI Id="WixUI_InstallDir" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui" />
+
+    <UI>
+      <Publish Dialog="ExitDialog"
+               Control="Finish"
+               Event="DoAction"
+               Value="LaunchApplication"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
+    </UI>
+
+    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+
+  </Package>
+</Wix>

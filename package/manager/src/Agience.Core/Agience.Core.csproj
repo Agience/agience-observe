@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Agience.Core</RootNamespace>
+    <AssemblyName>Agience.Core</AssemblyName>
+
+    <!-- Warnings are errors: this assembly starts, stops and reports on the services, and a
+         nullability warning here is exactly the class of bug that renders as a confidently wrong
+         icon over a node that is down. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+    <!-- No RuntimeIdentifier here. Pinning one forces every referencing project — the test project
+         first — to pin the same one, and a mismatch fails restore with a message about package
+         graphs rather than about what is wrong. The publish command carries it. -->
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+</Project>

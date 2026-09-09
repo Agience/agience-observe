@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Matches the assembly under test. Agience.Core targets a Windows TFM because it reads the
+         registry and the TCP table, so this has to as well. -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ⛔ Agience.Core, NOT Agience.Manager. The rules worth holding — the verdict mapping, the
+         URI derivation, the service table, the environment — are all here, and a WinExe cannot be
+         referenced by a test project anyway. Which is the reason Core is a separate assembly. -->
+    <ProjectReference Include="..\..\src\Agience.Core\Agience.Core.csproj" />
+  </ItemGroup>
+
+</Project>

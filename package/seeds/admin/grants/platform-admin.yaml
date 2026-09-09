@@ -1,0 +1,28 @@
+# Admin grant set — applied only to the designated platform admin user
+# (`platform.operator_id`, created during setup). These are plain grants: same
+# format as the per-user grants, just a different (fuller) set for the one
+# designated admin. No conditions, no operator grant type.
+type: grant
+namespace: agience
+slug: platform-admin-collections
+principal: "{{user.id}}"
+# Full management for the designated admin: create/add to assign artifacts into
+# these platform collections (add-to-collection checks `create`); evict to remove
+# items from them (`DELETE /artifacts/{container_id}/children/{artifact_id}` checks `evict` on the container);
+# delete to archive the artifacts themselves; update + admin for content + grant
+# management. Regular users only ever receive `read` on these, so they cannot
+# write to, assign into, or remove from them.
+actions: [read, create, update, delete, evict, add, invoke, admin]
+resources:
+  - agience/agience-authorities
+  - agience/agience-hosts
+  - agience/agience-resources
+  - agience/agience-inbox-seeds
+  - agience/agience-seeds-start-here
+  - agience/agience-seeds-platform-artifacts
+  - agience/agience-seeds-all-tools
+  - agience/agience-seeds-agents
+  - agience/agience-package-registry
+  - agience/agience-seeds-all-servers
+  - agience/agience-anchorset
+name: Platform admin (full management access)
