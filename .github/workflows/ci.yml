@@ -28,12 +28,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The four services this repository installs and supervises. `test_agience_cli.py` asserts
+      # that each `Service` names a module that actually resolves — origin.main, mantle.main,
+      # crystal.main, ember.cli — because a name that resolves to nothing fails at LAUNCH, after
+      # the installer has already reported success. That check is only worth anything when the
+      # packages are present, and its own docstring assumes "the developer workspace, where the
+      # packages are on the path". CI is not that, so the workspace is reconstructed here.
+      #
+      # All four are public, so none of these checkouts needs a token.
+      - uses: actions/checkout@v4
+        with: { repository: "${{ github.repository_owner }}/agience-origin",  path: .siblings/agience-origin }
+      - uses: actions/checkout@v4
+        with: { repository: "${{ github.repository_owner }}/agience-mantle",  path: .siblings/agience-mantle }
+      - uses: actions/checkout@v4
+        with: { repository: "${{ github.repository_owner }}/agience-crystal", path: .siblings/agience-crystal }
+      - uses: actions/checkout@v4
+        with: { repository: "${{ github.repository_owner }}/agience-ember",   path: .siblings/agience-ember }
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install --upgrade pip
+      # `cryptography` and `pytest-asyncio` are imported by the suite and declared by NEITHER
+      # pyproject here. Pinned so the run is reproducible; the declaration gap is real and belongs
+      # in `package/hosts/desktop/pyproject.toml`.
       - run: pip install pytest pytest-asyncio cryptography fastapi uvicorn "mcp[cli]>=1.6.0" httpx websockets
+      # Installed for importability, which is all the CLI test asks of them. Origin declares its
+      # trust floor as `agience-prism[trust]` and pip resolves that from PyPI.
+      - run: pip install ./.siblings/agience-origin ./.siblings/agience-mantle ./.siblings/agience-crystal ./.siblings/agience-ember
       - name: Run the suite
         run: python -m pytest -q
 
@@ -74,6 +96,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
+      # `agience.ico` is gitignored on purpose: the brand mark `agience-logo.png` is committed and
+      # the icon is DERIVED from it on every build, so no binary blob is carried and no build reaches
+      # into one workstation's folder for it. `installer/build.ps1` runs this before packaging the
+      # MSI; a bare `dotnet build` does not, and `<ApplicationIcon>` then fails the compile outright.
+      - name: Draw agience.ico from the brand mark
+        run: pwsh package/manager/installer/make-icon.ps1
       - name: Build
         run: dotnet build package/manager/src/Agience.Manager/Agience.Manager.csproj -c Release --nologo
       - name: Test
