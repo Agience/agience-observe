@@ -13,8 +13,7 @@ A sovereign node's state is:
 
 > The lattice holds the envelope-**encrypted** key material and grants — it is the crown
 > jewels. The MinIO blobs are already encrypted at rest. Treat the tarball as secret
-> (it contains `KEYS_DIR`); store it encrypted / access-controlled. What the keys are and
-> the custody model: **[KEY-CUSTODY.md](KEY-CUSTODY.md)**.
+> (it contains `KEYS_DIR`); store it encrypted and access-controlled.
 
 ## Back up
 

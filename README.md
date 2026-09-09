@@ -76,8 +76,7 @@ FORCE=1 ./restore.sh <tar>  # destructive; the node must be stopped
 and identity state as well. It is guarded by `FORCE=1` and requires the node stopped: restoring a
 SQLite file underneath a process holding it open corrupts both.
 
-[`BACKUP.md`](BACKUP.md) is the full procedure and [`KEY-CUSTODY.md`](KEY-CUSTODY.md) covers the key
-material, which travels separately.
+[`BACKUP.md`](BACKUP.md) is the full procedure. The key material travels separately from the data.
 
 ## Bundles
 
@@ -105,7 +104,7 @@ catches nothing its own reader gets wrong.
 | [`package/pack-seeds.sh`](package/pack-seeds.sh) | builds the distributable seed tarball |
 | [`build_bundles.py`](build_bundles.py) | the bundle builder |
 | [`backup.sh`](backup.sh) · [`restore.sh`](restore.sh) · [`seed-platform.sh`](seed-platform.sh) | the operator scripts |
-| [`BACKUP.md`](BACKUP.md) · [`KEY-CUSTODY.md`](KEY-CUSTODY.md) | the operator documentation |
+| [`BACKUP.md`](BACKUP.md) | the operator documentation |
 
 Security issues: email **connect@agience.ai** rather than opening a public issue.
 
