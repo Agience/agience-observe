@@ -18,6 +18,19 @@ namespace Agience.Core;
 /// error anywhere.
 /// </para>
 /// <para>
+/// ⛔ THAT IS NOT HYPOTHETICAL — IT HAPPENED, WITHIN A DAY. A hand-written Caddyfile was kept beside
+/// the node's own configuration while this was being built. Measured 2026-09-16 by comparing the
+/// two: the generated file had **seven** site blocks and the hand-written one **five**. It was
+/// missing `chorus.` and `ember.`, so the wildcard caught them and sent
+/// <c>ember.home.agience.ai</c> to **8087** — the persona host — instead of to Ember on 8091. A
+/// valid certificate in front of the wrong service, answering normally, with nothing to notice.
+/// </para>
+/// <para>
+/// The hand-written copy was deleted rather than corrected. Nothing referenced it, and a duplicate
+/// that has already drifted once will drift again; this class derives every name and port from the
+/// instance list and cannot acquire that defect.
+/// </para>
+/// <para>
 /// ⛔ EVERY SITE BINDS 127.0.0.1, AND THAT IS THE WHOLE REASON THIS FILE IS TESTED. Caddy's default
 /// is every interface. Measured 2026-09-16 on this machine: an edge written without <c>bind</c>
 /// listened on <c>::</c> for every name on the node while all five Python services were correctly
