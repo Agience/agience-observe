@@ -30,6 +30,8 @@ public sealed class SetupPage : PageControl
     private readonly Button _install = new();
     private readonly Button _getPython = new();
     private readonly Button _rebuild = new();
+    private readonly Label _caddyState = new();
+    private readonly Button _getCaddy = new();
     private readonly TextBox _output = new();
 
     private bool _running;
@@ -115,6 +117,27 @@ public sealed class SetupPage : PageControl
         Controls.AddRange(new Control[] { _install, _getPython, _rebuild });
         y += 40;
 
+        // ── the TLS edge, the one optional component ───────────────────────────────────────────
+        //
+        // ⚠ IT IS OFFERED, NOT ASSUMED, AND IT IS THE ONLY EXTRA COMPONENT. Caddy is what makes
+        // this node answer on its own names in a browser instead of only on 127.0.0.1 ports. The
+        // wording of the question lives in `CaddyEnvironment.ApprovalPrompt` rather than here, so
+        // the installer and this page cannot describe the same download two different ways — the
+        // second description is the one that goes stale.
+        _caddyState.AutoSize = false;
+        _caddyState.Size = new Size(750, 34);
+        _caddyState.Location = new Point(4, y);
+        _caddyState.ForeColor = SystemColors.GrayText;
+        Controls.Add(_caddyState);
+        y += 40;
+
+        _getCaddy.Text = "Set up HTTPS…";
+        _getCaddy.Location = new Point(4, y);
+        _getCaddy.Size = new Size(150, 32);
+        _getCaddy.Click += async (_, _) => await ProvisionCaddyAsync().ConfigureAwait(true);
+        Controls.Add(_getCaddy);
+        y += 40;
+
         _output.Location = new Point(4, y);
         _output.Size = new Size(800, 180);
         _output.Multiline = true;
@@ -170,6 +193,24 @@ public sealed class SetupPage : PageControl
         _packages.Text = string.Join("      ",
             status.Packages.Select(p => $"{p.Key} {p.Value ?? "— not installed"}"));
 
+        // ── the edge, reported as a capability rather than as a component ──────────────────────
+        //
+        // ⚠ THREE STATES, AND THE MIDDLE ONE IS THE EASY ONE TO LOSE. Caddy present and its root
+        // trusted is the finished condition; caddy present and untrusted is a real, visible state
+        // that a browser would otherwise report as a certificate error the person has to decode.
+        // Reading the trust store needs no elevation, so this costs nothing to show.
+        var caddy = CaddyEnvironment.Best();
+        _caddyState.Text = caddy is null
+            ? "HTTPS is not set up. The services answer on 127.0.0.1 ports only. " +
+              "Press \"Set up HTTPS\" to install Caddy — the one extra component Agience uses."
+            : CaddyEnvironment.IsRootTrusted()
+                ? $"HTTPS is ready — this node answers on its own names. Using {caddy.Path} ({caddy.Source})."
+                : $"Caddy is present ({caddy.Source}) but its certificate authority is not trusted yet, " +
+                  "so a browser will warn. Run the installer, or repair it, to finish setup.";
+
+        _getCaddy.Enabled = !_running;
+        _getCaddy.Text = caddy is null ? "Set up HTTPS…" : "Re-check HTTPS";
+
         _install.Text = status.Ready ? "Repair" : "Install";
         _install.Enabled = !_running && found.Count > 0;
         _getPython.Visible = found.Count == 0 || !status.Ready;
@@ -177,6 +218,72 @@ public sealed class SetupPage : PageControl
         _browse.Enabled = !_running && _source.SelectedIndex != 2;
         _sourceRoot.Enabled = _browse.Enabled;
         _source.Enabled = !_running;
+    }
+
+    /// <summary>
+    /// Offer the one optional component, and install it only if the person says yes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ⛔ THE DIALOG IS THE CONSENT, AND NOTHING IS FETCHED BEFORE IT RETURNS. `ProvisionAsync`
+    /// takes the answer as a parameter and checks it before touching the network, so a download
+    /// cannot begin while this box is still open. The wording comes from
+    /// <see cref="CaddyEnvironment.ApprovalPrompt"/> so that the installer and this page say the
+    /// same thing about the same download.
+    /// </para>
+    /// <para>
+    /// ⚠ DECLINING IS A NORMAL OUTCOME, NOT AN ERROR. The services run without it, on their local
+    /// ports; only the node's own names stop working. The prompt says so, and this reports it as a
+    /// plain line rather than as a failure.
+    /// </para>
+    /// </remarks>
+    private async Task ProvisionCaddyAsync()
+    {
+        if (CaddyEnvironment.Best() is { } already)
+        {
+            Say($"Caddy is already available: {already.Path} ({already.Source}).");
+            Say(CaddyEnvironment.IsRootTrusted()
+                ? "Its certificate authority is trusted; HTTPS is ready."
+                : "Its certificate authority is NOT trusted yet — run the installer, or repair it.");
+            Rerender();
+            return;
+        }
+
+        var answer = MessageBox.Show(
+            CaddyEnvironment.ApprovalPrompt,
+            "Set up HTTPS for this node",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question);
+
+        if (answer != DialogResult.Yes)
+        {
+            Say("Caddy was not installed. The services still run, on their local ports.");
+            return;
+        }
+
+        _running = true;
+        Rerender();
+
+        try
+        {
+            var progress = new Progress<string>(Say);
+            var result = await CaddyEnvironment
+                .ProvisionAsync(approved: true, progress)
+                .ConfigureAwait(true);
+
+            Say(result.Reason);
+
+            if (result.Installed && !CaddyEnvironment.IsRootTrusted())
+            {
+                Say("Next: the certificate authority is created the first time the edge starts, " +
+                    "and the installer trusts it. Run a repair after starting the edge once.");
+            }
+        }
+        finally
+        {
+            _running = false;
+            Rerender();
+        }
     }
 
     private void SourceChanged()
