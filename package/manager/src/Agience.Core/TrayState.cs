@@ -55,9 +55,9 @@ public static class TrayState
         {
             return new Verdict(TrayLevel.NotRunning,
                 "Nothing is configured",
-                "No Origin and no Mantle have been added yet. Open the window and add one — an " +
-                "Origin to be your own identity authority, a Mantle to hold what you store, or a " +
-                "Mantle alone if you are joining somebody else's authority.");
+                "No services have been added yet. Open the window and add one — an Origin to be " +
+                "your own identity authority, a Mantle to hold what you store, or a Mantle alone " +
+                "if you are joining somebody else's authority.");
         }
 
         // With no environment, every instance is stopped, and reporting that sends a person to
@@ -67,8 +67,8 @@ public static class TrayState
             return new Verdict(TrayLevel.NotReady,
                 "Setup is not finished",
                 "There is no Python environment yet, so nothing can start. Open the window and " +
-                "finish setup — it installs Origin and Mantle into a private environment under " +
-                "your profile.");
+                "finish setup — it installs the services into a private environment under your " +
+                "profile.");
         }
 
         var enabled = services.Where(s => s.State != ServiceState.Disabled).ToList();

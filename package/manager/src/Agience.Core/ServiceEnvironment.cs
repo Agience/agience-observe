@@ -31,7 +31,9 @@ public static class ServiceEnvironment
         // working directory: it mints a small store, reports a handful of artifacts to reindex, and
         // serves an empty universe while looking healthy. A store with five artifacts in it is a
         // valid store, so nothing errors.
-        var shard = home + "/shard";
+        // Its own directory when it has one — a node adopted from an earlier layout may keep its
+        // lattice on another volume entirely. `ShardDirectoryOf` applies the `<home>/shard` default.
+        var shard = Slashes(config.ShardDirectoryOf(instance));
 
         var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -81,8 +83,28 @@ public static class ServiceEnvironment
         }
         else
         {
-            env["MANTLE_URI"] = instance.PublicUri;
-            env["FRONTEND_URI"] = instance.PublicUri;
+            // ⛔ "NOT ORIGIN" NO LONGER MEANS "MANTLE". This branch used to set
+            // `MANTLE_URI = instance.PublicUri` for everything that was not an Origin, which was
+            // exactly right while Mantle was the only other kind — and becomes a quiet lie the
+            // moment Crystal, Chorus or Ember exists: each would be told the store is itself, and
+            // would then read and write nothing, at its own address, without an error.
+            var isMantle = string.Equals(instance.Kind, ServiceCatalog.Mantle.Name,
+                                         StringComparison.OrdinalIgnoreCase);
+
+            if (isMantle)
+            {
+                env["MANTLE_URI"] = instance.PublicUri;
+                env["FRONTEND_URI"] = instance.PublicUri;
+            }
+            else
+            {
+                // These CONSUME a store rather than being one. Loopback, because a peer this
+                // configuration knows about is on this machine.
+                if (config.PeerAddressFor(instance, ServiceCatalog.Mantle.Name) is { } store)
+                {
+                    env["MANTLE_URI"] = store;
+                }
+            }
 
             // Two different values for the authority, and collapsing them breaks one case or the
             // other. ORIGIN_URI is where to send a request — loopback when the Origin is on this
@@ -92,6 +114,48 @@ public static class ServiceEnvironment
             if (config.AuthorityAddressFor(instance) is { } address)
             {
                 env["ORIGIN_URI"] = address;
+            }
+        }
+
+        // ── the persona host's own three ───────────────────────────────────────────────────────
+        // Set here and not in the catalogue because they are environment, not arguments.
+        if (string.Equals(instance.Kind, ServiceCatalog.Chorus.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            // ⚠ REQUIRED, AND NOT FOR THE REASON IT ONCE WAS. The host's index no longer reads it
+            // — that comes off the request — but `crystal/type_registration.py` falls back to
+            // `http://localhost:${MCP_PORT}` for the endpoint each persona ADVERTISES to the
+            // gateway. Unset, every persona registers at a port it is not on and dispatch reaches
+            // nothing, with both services reporting healthy.
+            env["MCP_PORT"] = instance.Port.ToString();
+
+            // Stated rather than left to that fallback, which spells the host `localhost`. On a
+            // machine where `localhost` resolves to ::1 first, an advertised endpoint no caller
+            // can reach is indistinguishable from a persona that failed to register.
+            env["CHORUS_PUBLIC_URI"] = instance.LoopbackUri;
+
+            // Where the personas register. `crystal/host.py` and `type_registration.py` both read
+            // this name.
+            if (config.PeerAddressFor(instance, ServiceCatalog.Crystal.Name) is { } gateway)
+            {
+                env["CRYSTAL_URI"] = gateway;
+            }
+
+            // ⛔ WITHOUT THIS A PERSONA LOSES ITS OPERATORS AND ITS FACETS, SILENTLY. Every chorus
+            // manifest resolves its organons from a sha-verified bundle and `prism.runner` looks
+            // for the payloads here first. Unset, `register_fns` raises,
+            // `chorus.personas._persona_manifest` logs it and yields an EMPTY roster for that
+            // persona — so the host still boots, still answers, and that persona's facets never
+            // reach the router. Nothing reports a fault; the persona is simply not there.
+            //
+            // ⚠ THE INSTALLED PACKAGE, NOT A CHECKOUT. The payloads are declared package data
+            // (`bundles/*.json` in agience-chorus's pyproject), so they ship inside the
+            // distribution this application installed. `svc_env` names a checkout because the
+            // fleet runs from one; naming a checkout here would point at a directory that need
+            // not exist on a machine that installed from git.
+            var bundles = Path.Combine(Paths.SitePackages, "agience_chorus", "bundles");
+            if (Directory.Exists(bundles))
+            {
+                env["AGIENCE_BUNDLE_ROOT"] = Slashes(bundles);
             }
         }
 
@@ -119,7 +183,7 @@ public static class ServiceEnvironment
                      home,
                      Path.Combine(home, "keys"),
                      Path.Combine(home, "origin"),
-                     Path.Combine(home, "shard"),
+                     config.ShardDirectoryOf(instance),
                      Path.Combine(home, ".data", "mantle-sse"),
                      Path.Combine(home, ".data", "mantle-cells"),
                  })

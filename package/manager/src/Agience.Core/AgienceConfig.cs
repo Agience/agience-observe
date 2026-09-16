@@ -28,7 +28,7 @@ public sealed class AgienceConfig
     /// <summary>Bumped when a field's meaning changes in a way a reader must notice.</summary>
     [JsonPropertyName("version")] public int Version { get; set; } = 2;
 
-    /// <summary>Every Origin and Mantle this machine is configured to run.</summary>
+    /// <summary>Every service instance this machine is configured to run.</summary>
     [JsonPropertyName("instances")] public List<ServiceInstance> Instances { get; set; } = new();
 
     /// <summary>The directory each instance's own data directory is created under.</summary>
@@ -74,7 +74,7 @@ public sealed class AgienceConfig
     public string ResolvedDataRoot =>
         string.IsNullOrWhiteSpace(DataRoot) ? Paths.DefaultData : DataRoot.Trim();
 
-    /// <summary>Instances in start order: every Origin, then every Mantle.</summary>
+    /// <summary>Instances in start order, as <see cref="ServiceCatalog.All"/> defines it.</summary>
     /// <remarks>
     /// Every Origin starts before any Mantle. A Mantle verifies against an authority that must
     /// already be publishing keys; starting them interleaved makes a race present as a trust failure.
@@ -103,6 +103,19 @@ public sealed class AgienceConfig
         string.IsNullOrWhiteSpace(instance.DataDirectory)
             ? Path.Combine(ResolvedDataRoot, instance.Id)
             : instance.DataDirectory.Trim();
+
+    /// <summary>
+    /// Where this instance's lattice and shard live — its own override, or <c>&lt;data&gt;/shard</c>.
+    /// </summary>
+    /// <remarks>
+    /// The default is the arrangement to prefer; the override exists for a node whose lattice was
+    /// already somewhere else when this application adopted it. See
+    /// <see cref="ServiceInstance.ShardDirectory"/> for what happens without it.
+    /// </remarks>
+    public string ShardDirectoryOf(ServiceInstance instance) =>
+        string.IsNullOrWhiteSpace(instance.ShardDirectory)
+            ? Path.Combine(DataDirectoryOf(instance), "shard")
+            : instance.ShardDirectory.Trim();
 
     /// <summary>Where this instance writes its output.</summary>
     public static string LogPathOf(ServiceInstance instance) =>
@@ -185,19 +198,47 @@ public sealed class AgienceConfig
     /// the only Origin there is. Two Origins on other domains is a genuine ambiguity and returns
     /// null, which the window turns into a question rather than a guess.
     /// </remarks>
-    public ServiceInstance? DefaultAuthorityFor(ServiceInstance instance)
+    public ServiceInstance? DefaultAuthorityFor(ServiceInstance instance) =>
+        DefaultOfKindFor(instance, ServiceCatalog.Origin.Name);
+
+    /// <summary>
+    /// The instance of <paramref name="kind"/> that <paramref name="instance"/> takes when nobody
+    /// has said which — one on its own domain first, else the only one there is, else null.
+    /// </summary>
+    /// <remarks>
+    /// The same rule <see cref="DefaultAuthorityFor"/> has always applied to Origins, stated once
+    /// so the answer cannot differ by kind. Crystal, Chorus and Ember each need to reach the store
+    /// the same way a Mantle needs to reach its authority, and a second copy of this rule would be
+    /// free to drift into a different one.
+    ///
+    /// Null on ambiguity rather than a guess, for the reason the authority case gives: picking
+    /// whichever sorted first would silently bind a service to the wrong peer and report nothing.
+    /// </remarks>
+    public ServiceInstance? DefaultOfKindFor(ServiceInstance instance, string kind)
     {
-        var origins = Instances
-            .Where(i => string.Equals(i.Kind, ServiceCatalog.Origin.Name, StringComparison.OrdinalIgnoreCase))
+        var candidates = Instances
+            .Where(i => string.Equals(i.Kind, kind, StringComparison.OrdinalIgnoreCase))
+            .Where(i => !ReferenceEquals(i, instance))
             .ToList();
 
-        var sameDomain = origins
+        var sameDomain = candidates
             .Where(o => string.Equals(o.Domain.Trim().Trim('.'), instance.Domain.Trim().Trim('.'),
                                       StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        return sameDomain.Count == 1 ? sameDomain[0] : origins.Count == 1 ? origins[0] : null;
+        return sameDomain.Count == 1 ? sameDomain[0] : candidates.Count == 1 ? candidates[0] : null;
     }
+
+    /// <summary>
+    /// The address this instance REACHES a peer of <paramref name="kind"/> at — loopback, because
+    /// a peer this configuration knows about is by definition on this machine.
+    /// </summary>
+    /// <remarks>
+    /// Loopback for the reason <see cref="AuthorityAddressFor"/> gives: the public name may not
+    /// resolve here, or may not point here at all.
+    /// </remarks>
+    public string? PeerAddressFor(ServiceInstance instance, string kind) =>
+        DefaultOfKindFor(instance, kind)?.LoopbackUri;
 
     /// <summary>
     /// A port nothing else here is using, at or above this kind's base.
@@ -265,16 +306,37 @@ public sealed class AgienceConfig
                          ". Only one of them could ever bind it; the other would be reported as failed.");
         }
 
-        foreach (var clash in Instances.GroupBy(i => DataDirectoryOf(i), StringComparer.OrdinalIgnoreCase)
-                                       .Where(g => g.Count() > 1))
+        // ⛔ WITHIN A KIND, NOT ACROSS ALL OF THEM. Sharing is silent, which is why it is refused
+        // rather than warned about — but the thing that must not be shared is a service's own
+        // state, and two DIFFERENT kinds sharing one home is not that. It is what a node IS:
+        // `agience-cloud/scripts/service_common.sh:svc_env` derives KEYS_DIR, ORIGIN_DB_PATH and
+        // both index directories from one AGIENCE_HOME for EVERY service on a node instance, and
+        // the Origin and the Mantle of one node are meant to hold the same keys.
+        //
+        // Refusing that made the arrangement every real node already has inexpressible here, which
+        // is a rule that forbids the correct configuration while still permitting the wrong one:
+        // two Mantles with different homes and one overridden shard between them.
+        foreach (var kind in Instances.GroupBy(i => i.Kind, StringComparer.OrdinalIgnoreCase))
         {
-            // Sharing a data directory is silent, which is why it is refused rather than warned
-            // about. Two Mantles on one directory share one lattice and one SSE index, and mantle's
-            // own .env.example names the result: "Both come up healthy while answering searches
-            // from each other's postings."
-            problems.Add($"{string.Join(" and ", clash.Select(i => i.Display))} share the data " +
-                         $"directory {clash.Key}. Each instance needs its own: sharing one means " +
-                         "sharing a store and an index, and nothing reports it.");
+            foreach (var clash in kind.GroupBy(i => DataDirectoryOf(i), StringComparer.OrdinalIgnoreCase)
+                                      .Where(g => g.Count() > 1))
+            {
+                problems.Add($"{string.Join(" and ", clash.Select(i => i.Display))} share the data " +
+                             $"directory {clash.Key}. Two of one kind each need their own: sharing " +
+                             "one means sharing a store and an index, and nothing reports it.");
+            }
+
+            // The shard is checked separately because it can be overridden away from the home:
+            // two Mantles with distinct homes pointed at one lattice share a store while passing
+            // every directory check above. Mantle's own .env.example names the result — "Both come
+            // up healthy while answering searches from each other's postings."
+            foreach (var clash in kind.GroupBy(i => ShardDirectoryOf(i), StringComparer.OrdinalIgnoreCase)
+                                      .Where(g => g.Count() > 1)
+                                      .Where(g => !g.All(i => string.IsNullOrWhiteSpace(i.ShardDirectory))))
+            {
+                problems.Add($"{string.Join(" and ", clash.Select(i => i.Display))} share the shard " +
+                             $"directory {clash.Key}. Two of one kind each need their own store.");
+            }
         }
 
         foreach (var mantle in Instances.Where(i =>

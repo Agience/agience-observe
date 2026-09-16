@@ -4,7 +4,7 @@ using Agience.Core;
 namespace Agience.Manager;
 
 /// <summary>
-/// The Agience tray application: it starts, stops and configures Origin and Mantle instances.
+/// The Agience tray application: it starts, stops and configures service instances.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -207,7 +207,7 @@ internal static class Program
 
         if (config.Instances.Count == 0)
         {
-            Console.WriteLine("  no Origin and no Mantle have been configured on this machine");
+            Console.WriteLine("  nothing has been configured on this machine");
         }
 
         foreach (var service in supervisor.Services.Concat(supervisor.Orphans))

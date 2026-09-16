@@ -1,6 +1,6 @@
 # build.ps1 — publish the tray application and package it as an MSI.
 #
-#   installer\build.ps1              → installer\out\Agience-0.1.0-x64.msi
+#   installer\build.ps1              → installer\out\Agience-0.2.1-x64.msi
 #   installer\build.ps1 -Configuration Debug
 #
 # ⛔ SELF-CONTAINED, SO THE PACKAGE CARRIES NO PREREQUISITE. A framework-dependent build would need
@@ -26,7 +26,7 @@ param(
     # ⚠ Kept in step with the Version in Agience.Manager.csproj and the Package/@Version in
     # Agience.wxs. Three copies is two too many; this parameter is what a release bumps, and the
     # check below refuses when they have drifted.
-    [string]$Version = '0.1.0'
+    [string]$Version = '0.2.1'
 )
 
 Set-StrictMode -Version Latest

@@ -72,10 +72,15 @@ public sealed record ServiceKind(
 /// The kinds of service this application can run, in start order.
 /// </summary>
 /// <remarks>
-/// Ember is not here yet, deliberately. Origin and Mantle are the seed — an authority to say who
-/// anyone is, and a store to ground what they know — and between them they are the minimum from
-/// which a network can be grown. Adding a kind is additive: one record below, and one entry in the
-/// install plan.
+/// Origin and Mantle are the seed — an authority to say who anyone is, and a store to ground what
+/// they know — and between them they are the minimum from which a network can be grown. The other
+/// three make a machine a full node rather than a member: Ember reasons, Crystal routes, Chorus
+/// hosts the personas.
+///
+/// Adding a kind is additive and stays that way: one record below, one entry in
+/// <see cref="PythonEnvironment"/>'s install plan, and — only where the service needs something
+/// the others do not — a branch in <see cref="ServiceEnvironment"/>. Nothing else enumerates
+/// kinds; start order and the configuration screen both read this list.
 /// </remarks>
 public static class ServiceCatalog
 {
@@ -102,16 +107,90 @@ public static class ServiceCatalog
         "mantle", 8082, "uvicorn",
         new[] { "mantle.main:app", "--host", "127.0.0.1", "--port", "{port}", "--log-level", "warning" });
 
+    /// <summary>The reasoning runtime: an OpenAI-compatible endpoint over the local models.</summary>
+    /// <remarks>
+    /// <c>ember.cli</c> and not <c>uvicorn</c> — this one owns its own server, and the subcommand
+    /// is part of the module arguments.
+    ///
+    /// ⭐ PROVED BY <c>/health</c>, WHICH IS WHAT THE OTHER INSTALLER ALREADY USED. This was
+    /// pinned to the bound port on the grounds that no liveness path was documented; measured
+    /// 2026-09-15, `ember/surface/serve.py` serves one and `package/install/cli/agience.py`
+    /// declares `Service("ember", 8091, "/health", …)`. Two installers of the same node disagreeing
+    /// about how a service is proved up is a difference that survives precisely because each looks
+    /// right on its own.
+    ///
+    /// ⚠ AND IT IS A STRONGER CHECK THAN THE PORT, NOT MERELY A DIFFERENT ONE. With a store bound,
+    /// that handler calls <c>genesis.health</c> and answers 503 when the store cannot be shown
+    /// healthy — the wedged state this fleet has hit before. A bound port says a socket is open;
+    /// this says the service can answer for itself.
+    /// </remarks>
+    public static ServiceKind Ember { get; } = new(
+        "ember", "Ember",
+        "Reasoning: an OpenAI-compatible endpoint over the models this machine holds.",
+        "ember", 8091, "ember.cli",
+        new[] { "serve", "--host", "127.0.0.1", "--port", "{port}" },
+        HealthRule.HttpOk, "/health");
+
+    /// <summary>
+    /// The gateway: op dispatch, persona registration, and the resolved type catalogue.
+    /// </summary>
+    /// <remarks>
+    /// ⭐ A GATEWAY, NOT A HOST [John, 2026-09-14]. Crystal is the routing and condensation layer;
+    /// it answers inside the chorus domain and fronts the personas rather than sitting behind them.
+    /// There is no "crystal host".
+    ///
+    /// Its health path is <c>/health</c>, and Chorus's is <c>/healthz</c> — the two are genuinely
+    /// different surfaces and the near-identical spelling is a trap. Verified in
+    /// <c>crystal/main.py</c> and <c>crystal/host.py</c> on 2026-09-15.
+    /// </remarks>
+    public static ServiceKind Crystal { get; } = new(
+        "crystal", "Crystal",
+        "The gateway: op dispatch, persona registration, and the resolved type catalogue.",
+        "crystal", 8085, "uvicorn",
+        new[] { "crystal.main:app", "--host", "127.0.0.1", "--port", "{port}", "--log-level", "info" },
+        HealthRule.HttpOk, "/health");
+
+    /// <summary>The persona host: it mounts each persona behind the gateway.</summary>
+    /// <remarks>
+    /// ⛔ THE SPEC IS <c>agience_chorus.server:app</c>, NOT <c>server:app</c>. The module lives
+    /// inside the package, so the bare name resolves to nothing and the service cannot start at
+    /// all — measured on the fleet 2026-09-14.
+    ///
+    /// ⚠ NO <c>--app-dir</c> HERE, AND THAT IS THE DIFFERENCE FROM <c>svc_cmd</c>. The fleet runs
+    /// this from a source checkout and has to put <c>agience-chorus/src</c> on the path; this
+    /// application installs the distribution into its own environment, where
+    /// <c>agience_chorus.server</c> is importable outright. Carrying the fleet's flag across would
+    /// hard-code a checkout path into a build that has no checkout.
+    ///
+    /// ⚠ <c>MCP_PORT</c> is still required, and is set in <see cref="ServiceEnvironment"/> rather
+    /// than here: it is an environment variable, not an argument, and without it every persona
+    /// registers itself at a port it is not on.
+    /// </remarks>
+    public static ServiceKind Chorus { get; } = new(
+        "chorus", "Chorus",
+        "The persona host: it mounts each persona and registers them with the gateway.",
+        "chorus", 8087, "uvicorn",
+        new[] { "agience_chorus.server:app", "--host", "127.0.0.1", "--port", "{port}", "--log-level", "info" },
+        HealthRule.HttpOk, "/healthz");
+
     /// <summary>
     /// Every kind, in start order.
     /// </summary>
     /// <remarks>
-    /// Start order is a dependency order, not a preference. Every Origin starts before any Mantle,
-    /// because a Mantle verifies against an authority that must already be publishing keys. Started
-    /// together, Mantle reports a trust failure rather than a race — and the person reading that
-    /// message goes looking at trust configuration.
+    /// Start order is a dependency order, not a preference.
+    ///
+    /// Every Origin starts before any Mantle, because a Mantle verifies against an authority that
+    /// must already be publishing keys. Started together, Mantle reports a trust failure rather
+    /// than a race — and the person reading that message goes looking at trust configuration.
+    ///
+    /// Crystal starts before Chorus for the mirror-image reason: the personas Chorus mounts
+    /// register themselves with the gateway on startup (<c>POST /register</c>), so a Chorus that
+    /// comes up first advertises into nothing. Crystal retries registration, so the order is a
+    /// courtesy rather than a hard dependency — but the first-boot log is much easier to read when
+    /// it is honoured.
     /// </remarks>
-    public static IReadOnlyList<ServiceKind> All { get; } = new[] { Origin, Mantle };
+    public static IReadOnlyList<ServiceKind> All { get; } =
+        new[] { Origin, Mantle, Ember, Crystal, Chorus };
 
     /// <summary>Look a kind up by its configuration key. Null for one this build does not know.</summary>
     public static ServiceKind? ByName(string name) =>

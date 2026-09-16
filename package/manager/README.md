@@ -1,7 +1,8 @@
 # Agience
 
-**A Windows tray application that runs Origin and Mantle.** It installs them, configures them,
-starts and stops them, and removes itself — with your data as a separate decision.
+**A Windows tray application that runs a node.** Origin, Mantle, Ember, Crystal and Chorus: it
+installs them, configures them, starts and stops them, and removes itself — with your data as a
+separate decision.
 
 ```powershell
 installer\build.ps1     →  installer\out\Agience-0.1.0-x64.msi
@@ -27,9 +28,14 @@ install from one file.
 scheduled task. The tray starts at logon and the services start with it. A machine that must serve
 while nobody is signed in needs a service host this deliberately does not have.
 
-**Ember is not here yet.** Origin and Mantle are the seed — an authority to say who anyone is, and
-a store to ground what they know. Adding a kind is additive: one record in `ServiceCatalog.cs` and
-one entry in the install plan.
+**Origin and Mantle are the seed** — an authority to say who anyone is, and a store to ground what
+they know — and between them they are the minimum from which a network can be grown. The other
+three make a machine a full node rather than a member: Ember reasons, Crystal routes, Chorus hosts
+the personas.
+
+Adding a kind stays additive: one record in `ServiceCatalog.cs`, one entry in the install plan, and
+— only where a service needs something the others do not — a branch in `ServiceEnvironment.cs`.
+Nothing else enumerates kinds; start order and the configuration screen both read that one list.
 
 ## Instances, not services
 
@@ -40,21 +46,35 @@ Origin section and one Mantle section makes both inexpressible.
 
 Each instance carries its own name, domain, port, data directory and authority:
 
-| | Origin | Mantle |
-|---|---|---|
-| what it is | identity: principals, grants, and the keys peers verify against | memory: the artifact store, its version lineage and its search index |
-| started as | `uvicorn origin.main:app` | `uvicorn mantle.main:app` |
-| first port offered | 8080 | 8082 |
-| proved up by | `GET /.well-known/jwks.json` → 200 | its port is bound |
+| kind | what it is | started as | first port | proved up by |
+|---|---|---|---|---|
+| Origin | identity: principals, grants, and the keys peers verify against | `uvicorn origin.main:app` | 8080 | `GET /.well-known/jwks.json` → 200 |
+| Mantle | memory: the artifact store, its version lineage and its search index | `uvicorn mantle.main:app` | 8082 | its port is bound |
+| Ember | reasoning: an OpenAI-compatible endpoint over the models this machine holds | `ember.cli serve` | 8091 | `GET /health` → 200 |
+| Crystal | the gateway: op dispatch, persona registration, the resolved type catalogue | `uvicorn crystal.main:app` | 8085 | `GET /health` → 200 |
+| Chorus | the persona host: it mounts each persona and registers them with the gateway | `uvicorn agience_chorus.server:app` | 8087 | `GET /healthz` → 200 |
+
+**Ember is not uvicorn**, and the subcommand is part of the arguments — it owns its own server.
+With a store bound its `/health` answers 503 when the store cannot be shown healthy, so it is a
+stronger check than an open socket.
+**Crystal's health path is `/health` and Chorus's is `/healthz`**; the near-identical spelling is a
+trap, and the wrong one 404s for ever while painting a working service red.
 
 **Origin is proved by its keys, not by its port**, and it is the one exception. An Origin that is
 listening but publishes no key set is an authority no peer could ever verify — the shell
 supervisor's own preflight refuses a node in that state, and a green dot over it would be this
 application's most expensive lie.
 
+**Start order is a dependency order, not a preference**: Origin, Mantle, Ember, Crystal, Chorus.
+
 **Every Origin starts before any Mantle**, whatever domains they are on. A Mantle verifies against
 an authority that must already be publishing keys; started interleaved, it reports a *trust* failure
 rather than a race, and the person reading that goes looking at trust configuration.
+
+**Crystal starts before Chorus** for the mirror-image reason: the personas Chorus mounts register
+themselves with the gateway on startup, so a Chorus that comes up first advertises into nothing.
+Crystal's host retries registration, so this one is a courtesy rather than a hard dependency — but
+the first-boot log is far easier to read when it is honoured.
 
 **Every instance gets its own data directory**, and this is the failure the whole model exists to
 prevent. Two Mantles sharing one directory share one lattice, one keys directory and — worst,
@@ -159,7 +179,8 @@ promoted flag intact.
 on the machine, and if there is no Python 3.11 or newer it says so and offers the official download
 page. Silently running somebody else's installer is not a thing a tray application should do.
 
-It then builds a **private virtualenv** under your profile and installs Origin and Mantle into it.
+It then builds a **private virtualenv** under your profile and installs the five services into it,
+along with Prism — the wire they all import.
 
 **Never the machine's Python.** These packages pin exact versions — Origin alone pins fastapi,
 starlette, cryptography and uvicorn — and installing those into whatever interpreter somebody

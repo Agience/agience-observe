@@ -245,8 +245,9 @@ public sealed class SetupPage : PageControl
 
     private async Task RebuildAsync()
     {
-        // The services run out of the directory this deletes. Deleting it under them leaves three
-        // processes whose interpreter has gone, which fail in ways that name nothing.
+        // The services run out of the directory this deletes. Deleting it under them leaves every
+        // running service without an interpreter, failing in ways that name nothing. No count here:
+        // `ServiceCatalog` defines the kinds and says Ember is not in it yet.
         if (MessageBox.Show(this,
                 $"This deletes {Paths.Runtime} and builds it again from scratch." +
                 Environment.NewLine + Environment.NewLine +

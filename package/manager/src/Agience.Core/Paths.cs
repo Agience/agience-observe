@@ -45,6 +45,9 @@ public static class Paths
     /// <summary>The default for <see cref="AgienceConfig.DataDirectory"/>; the keys, the stores, the indexes.</summary>
     public static string DefaultData => Path.Combine(Root, "data");
 
+    /// <summary>Where pip puts the distributions inside <see cref="Runtime"/>.</summary>
+    public static string SitePackages => Path.Combine(Runtime, "Lib", "site-packages");
+
     /// <summary>Create the directories this application writes to. Idempotent.</summary>
     public static void EnsureRoot()
     {

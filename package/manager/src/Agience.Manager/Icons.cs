@@ -17,10 +17,11 @@ namespace Agience.Manager;
 /// among the twenty other icons in the tray.
 /// </para>
 /// <para>
-/// Colour is never the only difference. Roughly one man in twelve cannot separate the red from
-/// the green here, and a tray icon is 16 pixels with no label — so every badge differs in shape as
-/// well: a tick, a bar-and-dot, a cross, three dots, a down arrow, and a hollow ring. Someone who
-/// sees no colour at all still gets six distinguishable icons.
+/// The tray badge is one shape — a solid disc — in six colours, and at 16 pixels a glyph inside it
+/// does not read (see <see cref="DrawBadge"/>). So the colours are separated by luminance as well
+/// as hue for the roughly one man in twelve who cannot separate red from green, and the state is
+/// never carried by the badge alone: the tooltip, the menu headline and every row in the window
+/// say it in words.
 /// </para>
 /// <para>
 /// The badge is ringed in the background colour, not drawn flat. The mark is a dense tangle of

@@ -30,7 +30,7 @@
   -->
   <Package Name="Agience"
            Manufacturer="Ikailo Inc."
-           Version="0.1.0.0"
+           Version="0.2.1.0"
            UpgradeCode="6F5A4E31-2C7D-4A19-8B63-0E9F4D2A5C71"
            ProductCode="9C1B2F60-3F2E-4C4B-9F1A-1D5E2A6B7C80"
            Language="1033"

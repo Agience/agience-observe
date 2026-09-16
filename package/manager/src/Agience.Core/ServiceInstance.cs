@@ -55,6 +55,24 @@ public sealed class ServiceInstance
     /// <summary>Where this instance's keys, store and indexes live. Empty = under the data root.</summary>
     [JsonPropertyName("data_directory")] public string DataDirectory { get; set; } = "";
 
+    /// <summary>
+    /// Where the lattice and the shard live, when that is not under
+    /// <see cref="DataDirectory"/>. Empty = <c>&lt;data directory&gt;/shard</c>, which is the usual case.
+    /// </summary>
+    /// <remarks>
+    /// ⭐ FOR THE LAYOUT A NODE ALREADY HAS, NOT FOR A NEW ONE. Everything else about an instance
+    /// hangs off one directory on purpose, and that is the arrangement to prefer. But a node built
+    /// before this application existed may keep its keys and its account database in one place and
+    /// its lattice somewhere else entirely — a different volume, usually, because a lattice is the
+    /// large thing: the node this was added for holds 10.5 GB of shard beside a 184 KB origin.db.
+    ///
+    /// ⛔ WITHOUT THIS, ADOPTING SUCH A NODE SILENTLY MINTS AN EMPTY STORE. Point the instance at
+    /// the home that has the keys and the derived <c>&lt;home&gt;/shard</c> is a path with nothing in
+    /// it, so Mantle creates one: the service starts, reports healthy, and serves an empty universe.
+    /// A store with nothing in it is a valid store, so nothing anywhere errors.
+    /// </remarks>
+    [JsonPropertyName("shard_directory")] public string ShardDirectory { get; set; } = "";
+
     /// <summary>Does this machine run it?</summary>
     [JsonPropertyName("enabled")] public bool Enabled { get; set; } = true;
 

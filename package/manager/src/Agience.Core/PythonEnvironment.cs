@@ -28,7 +28,7 @@ public sealed record RuntimeStatus(
 }
 
 /// <summary>
-/// Finds a Python, builds the private environment, and puts Origin and Mantle in it.
+/// Finds a Python, builds the private environment, and puts the services in it.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -53,8 +53,8 @@ public static class PythonEnvironment
     /// The floor, and it comes from the packages rather than from taste.
     /// </summary>
     /// <remarks>
-    /// Origin and Mantle both declare <c>requires-python &gt;= 3.11</c>. The highest floor wins,
-    /// because one environment holds both.
+    /// Every distribution declares <c>requires-python &gt;= 3.11</c>. The highest floor wins,
+    /// because one environment holds all of them.
     /// </remarks>
     public static readonly Version Minimum = new(3, 11);
 
@@ -74,11 +74,15 @@ public static class PythonEnvironment
     /// <summary>The packages that must be present before anything can start.</summary>
     /// <remarks>
     /// The distribution names, which is what pip records in <c>*.dist-info</c>. The import names
-    /// differ — <c>origin</c>, <c>mantle</c> — and checking for those instead would
-    /// match any directory that happened to be called <c>origin</c>.
+    /// differ — <c>origin</c>, <c>mantle</c>, <c>crystal</c>, <c>ember</c>,
+    /// <c>agience_chorus</c> — and checking for those instead would match any directory that
+    /// happened to be called <c>origin</c>.
     /// </remarks>
     public static IReadOnlyList<string> RequiredPackages { get; } =
-        new[] { "agience-origin", "agience-mantle" };
+        new[]
+        {
+            "agience-origin", "agience-mantle", "agience-ember", "agience-crystal", "agience-chorus",
+        };
 
     // ── finding an interpreter ──────────────────────────────────────────────────────────────────
 
@@ -231,7 +235,7 @@ public static class PythonEnvironment
         var ready = venv && missing.Count == 0;
 
         var summary = !venv
-            ? "No environment yet. Setup builds one under your profile and installs Origin and Mantle into it."
+            ? "No environment yet. Setup builds one under your profile and installs the services into it."
             : missing.Count == 0
                 ? "Ready: " + string.Join(", ", packages.Select(p => $"{p.Key} {p.Value}"))
                 : "Environment exists but is missing " + string.Join(", ", missing) + ".";
@@ -382,6 +386,17 @@ public static class PythonEnvironment
                     new[] { "-m", "pip", "install", Path.Combine(root, "agience-mantle") + "[service,search,s3]" }),
                 new InstallStep("Origin (the authority)",
                     new[] { "-m", "pip", "install", Path.Combine(root, "agience-origin") }),
+
+                // ⚠ EMBER BEFORE CRYSTAL, AND CRYSTAL BEFORE CHORUS — the same dependency order
+                // the catalogue starts them in. Chorus imports `crystal.host` to build its app, so
+                // installing it first resolves crystal from wherever pip can find one rather than
+                // from this checkout.
+                new InstallStep("Ember (the reasoning runtime)",
+                    new[] { "-m", "pip", "install", Path.Combine(root, "agience-ember") }),
+                new InstallStep("Crystal (the gateway)",
+                    new[] { "-m", "pip", "install", Path.Combine(root, "agience-crystal") }),
+                new InstallStep("Chorus (the persona host)",
+                    new[] { "-m", "pip", "install", Path.Combine(root, "agience-chorus") }),
             };
         }
 
@@ -395,6 +410,12 @@ public static class PythonEnvironment
                 new[] { "-m", "pip", "install", $"agience-mantle[service,search,s3] @ git+{github}/agience-mantle.git" }),
             new InstallStep("Origin (the authority)",
                 new[] { "-m", "pip", "install", $"git+{github}/agience-origin.git" }),
+            new InstallStep("Ember (the reasoning runtime)",
+                new[] { "-m", "pip", "install", $"git+{github}/agience-ember.git" }),
+            new InstallStep("Crystal (the gateway)",
+                new[] { "-m", "pip", "install", $"git+{github}/agience-crystal.git" }),
+            new InstallStep("Chorus (the persona host)",
+                new[] { "-m", "pip", "install", $"git+{github}/agience-chorus.git" }),
         };
     }
 
@@ -446,15 +467,34 @@ public static class PythonEnvironment
     {
         try
         {
+            // ⛔ EVERY REPO THE SOURCE PLAN INSTALLS FROM, NOT A SAMPLE OF THEM. This used to check
+            // three while the plan installed three; the moment the plan grew Ember, Crystal and
+            // Chorus, a checkout holding only the original three would still answer "complete" —
+            // and setup would then run four steps and fail on the fifth with a pip error naming a
+            // path, after building a whole virtualenv. The test and the plan have to name the same
+            // set or the check is measuring something else.
             return File.Exists(Path.Combine(root, "agience-origin", "requirements.txt"))
-                && File.Exists(Path.Combine(root, "agience-mantle", "pyproject.toml"))
-                && File.Exists(Path.Combine(root, "agience-prism", "py", "pyproject.toml"));
+                && File.Exists(Path.Combine(root, "agience-prism", "py", "pyproject.toml"))
+                && SourceDistributions.All(
+                    d => File.Exists(Path.Combine(root, d, "pyproject.toml")));
         }
         catch (Exception)
         {
             return false;
         }
     }
+
+    /// <summary>
+    /// The repository directories the source plan installs from, each by <c>pyproject.toml</c>.
+    /// </summary>
+    /// <remarks>
+    /// Prism is not here because it is installed from its <c>py/</c> subdirectory, and Origin
+    /// carries a <c>requirements.txt</c> step of its own; both are checked separately above.
+    /// </remarks>
+    private static readonly string[] SourceDistributions =
+    {
+        "agience-mantle", "agience-origin", "agience-ember", "agience-crystal", "agience-chorus",
+    };
 
     /// <summary>
     /// Delete the private environment.
