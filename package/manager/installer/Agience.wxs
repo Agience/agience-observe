@@ -122,10 +122,45 @@
                   Impersonate="yes"
                   Return="ignore" />
 
+    <!--
+      ⭐ THE TLS EDGE'S CERTIFICATE AUTHORITY, INSTALLED WHILE WE STILL HAVE PRIVILEGE. This is the
+      one step in the whole edge design that cannot be done later by the tray: writing
+      LocalMachine\Root needs elevation, and `Agience.exe` runs unelevated at login. The installer
+      is already elevated, so it is the natural place — and it calls the application rather than a
+      helper, because this package installs exactly one file.
+
+      ⚠ `Execute="deferred"` WITH `Impersonate="no"` IS THE WHOLE POINT. An immediate action runs
+      as the invoking user, which on a per-machine install is exactly the account that cannot write
+      the store. Deferred and non-impersonated runs as SYSTEM.
+
+      ⛔ `Return="ignore"`, AND THAT IS NOT LAZINESS. The trust-root verb reports three outcomes
+      (an XML comment cannot carry the two dashes that precede it) and none of them should fail an
+      installation:
+          0  trusted, or already trusted
+          2  nothing to trust yet — the NORMAL case on a first install, because Caddy creates the
+             authority the first time the edge serves, which has not happened during setup
+          1  there was an authority and it could not be installed
+      Aborting on 2 would fail the install of a product that is working correctly. Aborting on 1
+      would refuse an installation over a trust store detail, when the services themselves are fine
+      and reachable on their local ports. The tray shows the real state from `IsRootTrusted()`, and
+      a repair after the first start completes the job.
+
+      ⚠ AFTER `InstallFiles`, so the executable it runs is on disk, and only when this is not a
+      removal.
+    -->
+    <CustomAction Id="TrustRootCA"
+                  FileRef="ManagerExe"
+                  ExeCommand="--trust-root"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
     <InstallExecuteSequence>
       <!-- Before RemoveFiles, so the file is still there to run, and gated on this actually being
            a removal rather than a first install. -->
       <Custom Action="StopAgience" Before="RemoveFiles" Condition="Installed" />
+
+      <Custom Action="TrustRootCA" After="InstallFiles" Condition="NOT REMOVE" />
     </InstallExecuteSequence>
 
     <!--
