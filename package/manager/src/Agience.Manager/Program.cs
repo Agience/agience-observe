@@ -74,6 +74,17 @@ internal static class Program
             return Shutdown();
         }
 
+        // `--trust-root` is what the installer calls, elevated, to put the TLS edge's certificate
+        // authority into the machine trust store. It lives in this executable rather than in a
+        // helper because `Agience.wxs` installs exactly one file and says so: "ONE FILE IS
+        // INSTALLED, AND THAT IS THE WHOLE DESIGN." A second binary would be a second thing to
+        // sign, ship and keep in step.
+        if (args.Contains("--trust-root", StringComparer.OrdinalIgnoreCase))
+        {
+            AttachConsole(-1);
+            return TrustRoot();
+        }
+
         // `--icons` exists for the same reason `--check` does: a tray icon cannot be looked at.
         // Every icon this application shows is drawn in code, at 32 pixels, into a tray that may be
         // collapsed behind a chevron — so the only way anyone reviews whether six states are
@@ -87,6 +98,48 @@ internal static class Program
         }
 
         return RunTray();
+    }
+
+    /// <summary>
+    /// Install the TLS edge's certificate authority into the machine trust store.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ⛔ THREE OUTCOMES, AND THE MIDDLE ONE IS WHY THIS IS NOT A BOOLEAN. At install time there is
+    /// usually **nothing to trust**: Caddy creates the authority the first time the edge serves,
+    /// not during setup. Exiting non-zero there would fail the installation of a product that is
+    /// working correctly; exiting zero with no distinction would tell the person TLS is trusted
+    /// when it is not.
+    /// </para>
+    /// <list type="table">
+    ///   <item><term>0</term><description>trusted now, or already trusted</description></item>
+    ///   <item><term>2</term><description>nothing to trust yet — expected during a first install</description></item>
+    ///   <item><term>1</term><description>there was an authority and it could not be installed</description></item>
+    /// </list>
+    /// <para>
+    /// ⚠ NONE OF THESE SHOULD FAIL AN INSTALL. Even 1 means only that HTTPS on this node's names is
+    /// not trusted yet — the services still run on their local ports. The custom action should
+    /// record the code, not abort on it, and the tray shows the state from
+    /// <see cref="CaddyEnvironment.IsRootTrusted"/>.
+    /// </para>
+    /// </remarks>
+    private static int TrustRoot()
+    {
+        if (CaddyEnvironment.IsRootTrusted())
+        {
+            Console.WriteLine("The certificate authority for this node's TLS edge is already trusted.");
+            return 0;
+        }
+
+        var result = CaddyEnvironment.TrustRoot();
+        Console.WriteLine(result.Reason);
+
+        if (result.Installed)
+        {
+            return 0;
+        }
+
+        return File.Exists(CaddyEnvironment.RootCertificatePath) ? 1 : 2;
     }
 
     /// <summary>Render every tray state to PNG, plus a strip of all of them, and say where.</summary>

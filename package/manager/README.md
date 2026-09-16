@@ -53,6 +53,7 @@ Each instance carries its own name, domain, port, data directory and authority:
 | Ember | reasoning: an OpenAI-compatible endpoint over the models this machine holds | `ember.cli serve` | 8091 | `GET /health` → 200 |
 | Crystal | the gateway: op dispatch, persona registration, the resolved type catalogue | `uvicorn crystal.main:app` | 8085 | `GET /health` → 200 |
 | Chorus | the persona host: it mounts each persona and registers them with the gateway | `uvicorn agience_chorus.server:app` | 8087 | `GET /healthz` → 200 |
+| Caddy | the TLS edge: terminates HTTPS for this node's names and proxies to the services | `caddy run --config Caddyfile` | 443 | its port is bound |
 
 **Ember is not uvicorn**, and the subcommand is part of the arguments — it owns its own server.
 With a store bound its `/health` answers 503 when the store cannot be shown healthy, so it is a

@@ -187,7 +187,59 @@ public sealed class ServiceProcess : IDisposable
         Paths.EnsureRoot();
         RollLog();
 
-        var psi = new ProcessStartInfo(Paths.VenvPython)
+        // ⭐ THE EDGE'S CONFIGURATION IS WRITTEN AT EVERY START, FROM THE SAME CONFIG THIS PROCESS
+        // WAS LAUNCHED FROM. `EdgeConfig` renders it out of `manager.json`, so the ports the edge
+        // proxies to cannot disagree with the ports the services bind. A hand-kept file beside them
+        // would be a second copy of the port table, and when the two drift the symptom is a valid
+        // certificate in front of the wrong service — no error, correct TLS, other people's data.
+        //
+        // ⚠ REWRITTEN RATHER THAN CREATED-IF-MISSING. Someone editing a generated file and losing
+        // the edit is a smaller harm than an edge that keeps serving last week's ports because a
+        // stale file was left in place; the banner at the top of the render says so.
+        if (Kind.Executable is not null)
+        {
+            var rendered = EdgeConfig.Render(config);
+            if (rendered is null)
+            {
+                Set(ServiceState.Failed,
+                    "There is nothing for the edge to front: no enabled service on this node has " +
+                    "both a domain and a subdomain. Starting it would bind 443 and answer nothing.");
+                return false;
+            }
+
+            File.WriteAllText(
+                Path.Combine(config.DataDirectoryOf(Instance), EdgeConfig.FileName), rendered);
+        }
+
+        // ⛔ NOT ALWAYS THE RUNTIME PYTHON. Every kind was a Python module until the TLS edge, so
+        // this line named the venv interpreter unconditionally. A native kind carries its own
+        // binary name, resolved against Paths.Root rather than searched on PATH — a service that
+        // starts whichever `caddy.exe` happens to be first on the user's PATH is a different
+        // program from the one the installer placed, and nothing would say so.
+        string exe;
+        if (Kind.Executable is null)
+        {
+            exe = Paths.VenvPython;
+        }
+        else
+        {
+            // The edge is the only native kind today. A second one would need its own finder —
+            // there is deliberately no generic "search PATH for whatever the kind named", because
+            // that is how a service ends up running a binary nobody chose.
+            var caddy = CaddyEnvironment.Best();
+            if (caddy is null)
+            {
+                Set(ServiceState.Failed,
+                    $"No {CaddyEnvironment.FileName} was found for the TLS edge — looked in " +
+                    $"{Paths.Root} and on PATH. Install it from {CaddyEnvironment.DownloadPage}, " +
+                    "or disable the edge. Nothing was started.");
+                return false;
+            }
+
+            exe = caddy.Path;
+        }
+
+        var psi = new ProcessStartInfo(exe)
         {
             UseShellExecute = false,
             CreateNoWindow = true,

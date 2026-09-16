@@ -53,12 +53,25 @@ public sealed record ServiceKind(
     string Module,
     IReadOnlyList<string> ModuleArguments,
     HealthRule Health = HealthRule.PortBound,
-    string? HealthPath = null)
+    string? HealthPath = null,
+    string? Executable = null)
 {
-    /// <summary>The arguments to hand <c>python.exe</c>, with the port filled in.</summary>
+    /// <summary>
+    /// The arguments to hand the interpreter or the native binary, with the port filled in.
+    /// </summary>
+    /// <remarks>
+    /// ⛔ <c>-m</c> IS PREPENDED ONLY FOR A PYTHON KIND. Every service in this catalogue was a
+    /// Python module until the TLS edge arrived, so the module form was not a choice this method
+    /// made — it was the only shape there was. A native binary takes its own arguments, and
+    /// prepending <c>-m</c> to them would produce a command line that looks plausible and starts
+    /// nothing.
+    /// </remarks>
     public IReadOnlyList<string> ArgumentsFor(int port)
     {
-        var args = new List<string> { "-m", Module };
+        var args = Executable is null
+            ? new List<string> { "-m", Module }
+            : new List<string>();
+
         foreach (var a in ModuleArguments)
         {
             args.Add(a.Replace("{port}", port.ToString()));
@@ -189,8 +202,44 @@ public static class ServiceCatalog
     /// courtesy rather than a hard dependency — but the first-boot log is much easier to read when
     /// it is honoured.
     /// </remarks>
+    /// <summary>The TLS edge: terminates HTTPS for this node's names and proxies to the services.</summary>
+    /// <remarks>
+    /// <para>
+    /// ⛔ THE ONLY KIND THAT IS NOT PYTHON, WHICH IS WHY <see cref="ServiceKind.Executable"/> EXISTS.
+    /// Caddy is a single static binary; it is launched directly rather than through the runtime
+    /// venv. <c>Executable</c> is a file name, not a path, and resolves against
+    /// <see cref="Paths.Root"/> — the same directory that already holds the runtime, writable by
+    /// the installer and by an unprivileged manager, unlike Program Files.
+    /// </para>
+    /// <para>
+    /// ⚠ NO <c>{port}</c> IN THE ARGUMENTS, AND NO SUBDOMAIN. The edge does not serve one name on
+    /// one port: it binds 443 for every name this node answers and routes by SNI and Host. The port
+    /// is recorded so the tray can say what it holds and so a conflict is visible, not because it
+    /// is substituted anywhere.
+    /// </para>
+    /// <para>
+    /// ⚠ THE CONFIG IS NAMED RELATIVELY ON PURPOSE. <c>ServiceProcess</c> sets
+    /// <c>WorkingDirectory</c> to the instance's data directory, so <c>--config Caddyfile</c>
+    /// resolves there — the file sits beside the data it fronts, and two instances on one box get
+    /// their own edge configuration without either naming an absolute path.
+    /// </para>
+    /// <para>
+    /// ⚠ <see cref="HealthRule.PortBound"/> RATHER THAN <c>HttpOk</c>, deliberately. An HTTP probe
+    /// of 443 would have to speak TLS and trust whatever certificate the edge presents — including
+    /// one from Caddy's internal CA on a machine where the root is not yet installed. "Something is
+    /// listening on 443" is the weaker claim and the true one.
+    /// </para>
+    /// </remarks>
+    public static readonly ServiceKind Caddy = new(
+        "caddy", "Caddy",
+        "The TLS edge: terminates HTTPS for this node's names and proxies to the services.",
+        "", 443, "",
+        new[] { "run", "--config", "Caddyfile", "--adapter", "caddyfile" },
+        HealthRule.PortBound, null,
+        Executable: "caddy.exe");
+
     public static IReadOnlyList<ServiceKind> All { get; } =
-        new[] { Origin, Mantle, Ember, Crystal, Chorus };
+        new[] { Origin, Mantle, Ember, Crystal, Chorus, Caddy };
 
     /// <summary>Look a kind up by its configuration key. Null for one this build does not know.</summary>
     public static ServiceKind? ByName(string name) =>

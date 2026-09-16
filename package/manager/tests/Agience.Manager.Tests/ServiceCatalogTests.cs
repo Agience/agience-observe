@@ -45,11 +45,41 @@ public class ServiceCatalogTests
     {
         // A service on 0.0.0.0 answers past whatever header and path rules a proxy in front applies
         // — and on a laptop that joins untrusted networks, it answers to them.
-        foreach (var kind in ServiceCatalog.All)
+        //
+        // ⛔ A NATIVE KIND DECLARES ITS LISTEN ADDRESS IN A CONFIG FILE, NOT ON THE COMMAND LINE, so
+        // this assertion cannot reach it — see the test below, which holds the same invariant from
+        // the other end. The scoping is not an exemption: measured 2026-09-16, a Caddy started
+        // without `bind` in its Caddyfile listened on `::` for every name on this node while all
+        // five Python services were correctly on 127.0.0.1. The rule matters most for the kind this
+        // loop cannot check.
+        foreach (var kind in ServiceCatalog.All.Where(k => k.Executable is null))
         {
             var arguments = kind.ArgumentsFor(1234);
             var host = arguments.SkipWhile(a => a != "--host").Skip(1).FirstOrDefault();
             Assert.Equal("127.0.0.1", host);
+        }
+    }
+
+    /// <summary>
+    /// The other end of the rule above: a native kind must name a config file, because its default
+    /// is the dangerous one.
+    /// </summary>
+    /// <remarks>
+    /// Caddy with no `--config` serves a built-in default and binds every interface. Requiring the
+    /// flag does not by itself prove the file says `bind 127.0.0.1` — that belongs with whatever
+    /// ships the file — but it does prove the listen address is declared somewhere reviewable
+    /// rather than inherited from a default nobody chose.
+    /// </remarks>
+    [Fact]
+    public void A_native_kind_declares_its_binding_in_a_config_file()
+    {
+        var native = ServiceCatalog.All.Where(k => k.Executable is not null).ToList();
+        Assert.NotEmpty(native);   // else this test passes by having nothing to check
+
+        foreach (var kind in native)
+        {
+            var arguments = kind.ArgumentsFor(1234);
+            Assert.Contains("--config", arguments);
         }
     }
 
@@ -58,10 +88,20 @@ public class ServiceCatalogTests
     {
         // Everything that manages a service finds it by the port it is EXPECTED on, so a literal
         // left in an argument list would bind one port while everything watched another.
+        //
+        // ⚠ A NATIVE KIND MAY CARRY NO PORT AT ALL. The TLS edge binds 443 for every name this node
+        // answers and routes by SNI and Host; there is no single port to substitute, and its
+        // `BasePort` is recorded so the tray can report what it holds rather than to be templated
+        // into a command line. What must still hold for every kind is the second assertion: an
+        // unsubstituted `{port}` is a bug regardless of who reads it.
         foreach (var kind in ServiceCatalog.All)
         {
             var arguments = kind.ArgumentsFor(9999);
-            Assert.Contains("9999", arguments);
+            if (kind.Executable is null)
+            {
+                Assert.Contains("9999", arguments);
+            }
+
             Assert.DoesNotContain(arguments, a => a.Contains("{port}"));
         }
     }

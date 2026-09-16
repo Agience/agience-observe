@@ -67,6 +67,23 @@ public static class ServiceEnvironment
             ["AGIENCE_INSTANCE"] = instance.Id,
         };
 
+        // ── the edge keeps its certificate authority where the installer can reach it ───────────
+        //
+        // ⛔ WITHOUT THIS THE TRUST STEP SILENTLY TRUSTS THE WRONG CA. Caddy keeps its PKI under the
+        // invoking user's profile (%AppData%\Caddy). The installer runs elevated — as SYSTEM — so it
+        // would generate and trust a root in SYSTEM's profile while the tray-run edge generated a
+        // different one in the user's. The browser then rejects a certificate whose CA *is*
+        // installed, and nothing in either half names the mismatch.
+        //
+        // ⚠ XDG_DATA_HOME IS HONOURED ON WINDOWS, which is not obvious and was measured rather than
+        // assumed. 2026-09-16, throwaway instance on :8443: setting it put the whole tree at
+        // <XDG_DATA_HOME>/caddy/pki/authorities/local/{root,intermediate}.{crt,key}. Pinning it to
+        // Paths.Root gives both contexts one location.
+        if (instance.Definition?.Executable is not null)
+        {
+            env["XDG_DATA_HOME"] = Slashes(Paths.Root);
+        }
+
         // ── who this instance is, and who it trusts ─────────────────────────────────────────────
         var isOrigin = string.Equals(instance.Kind, ServiceCatalog.Origin.Name,
                                      StringComparison.OrdinalIgnoreCase);
