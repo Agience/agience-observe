@@ -124,9 +124,23 @@ public sealed class ServiceInstance
         get
         {
             var domain = Domain.Trim().Trim('.');
-            var subdomain = Definition?.Subdomain;
-            return domain.Length == 0 || subdomain is null
-                ? LoopbackUri
+            if (domain.Length == 0)
+            {
+                return LoopbackUri;
+            }
+
+            var subdomain = Definition?.Subdomain?.Trim().Trim('.');
+
+            // ⛔ AN EMPTY SUBDOMAIN IS NOT A NULL ONE, AND THE TEST HERE USED TO BE `is null`.
+            // The TLS edge has no name of its own — it binds 443 for every name this node answers
+            // and routes by SNI — so its kind declares `""`. That is not null, so the old check fell
+            // through and produced `https://.home.agience.ai`, with a leading dot, which
+            // `--check` printed as the address to reach it at. Measured 2026-09-16.
+            //
+            // The apex is the truthful answer for a service with no subdomain: it is where the edge
+            // actually answers, and it is a name that resolves.
+            return string.IsNullOrEmpty(subdomain)
+                ? $"https://{domain}"
                 : $"https://{subdomain}.{domain}";
         }
     }

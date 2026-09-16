@@ -238,6 +238,43 @@ public class CaddyEnvironmentTests
         Assert.Null(ex);
     }
 
+    /// <summary>
+    /// A kind with no subdomain answers at the apex, not at a name with a leading dot.
+    /// </summary>
+    /// <remarks>
+    /// ⛔ THIS SHIPPED AND WAS VISIBLE ON THE OPERATOR SURFACE. `PublicUri` tested
+    /// `subdomain is null`, but the TLS edge declares `""` — it has no name of its own, since it
+    /// binds 443 for every name and routes by SNI. Empty is not null, so the check fell through and
+    /// `Agience.exe --check` printed **`answers at https://.home.agience.ai`**. Measured
+    /// 2026-09-16, on the first run after caddy became a managed instance.
+    /// </remarks>
+    [Fact]
+    public void A_kind_without_a_subdomain_answers_at_the_apex()
+    {
+        var instance = new ServiceInstance
+        {
+            Id = "caddy-home", Kind = ServiceCatalog.Caddy.Name, Name = "home",
+            Domain = "home.agience.ai", Port = 443, Enabled = true,
+        };
+
+        Assert.Equal("", ServiceCatalog.Caddy.Subdomain);        // the precondition this guards
+        Assert.Equal("https://home.agience.ai", instance.PublicUri);
+        Assert.DoesNotContain("://.", instance.PublicUri, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_kind_with_a_subdomain_still_gets_it()
+    {
+        // The other half, so the fix above cannot be "drop the subdomain everywhere".
+        var instance = new ServiceInstance
+        {
+            Id = "origin-home", Kind = ServiceCatalog.Origin.Name, Name = "home",
+            Domain = "home.agience.ai", Port = 8080, Enabled = true,
+        };
+
+        Assert.Equal("https://origin.home.agience.ai", instance.PublicUri);
+    }
+
     [Fact]
     public void The_download_page_is_a_page_not_an_archive()
     {

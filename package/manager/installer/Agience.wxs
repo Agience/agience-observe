@@ -82,6 +82,29 @@
          Start menu shortcut uses, and there it DOES take effect — see the scope note above for
          why ARPPRODUCTICON does not. -->
     <Icon Id="AgienceIcon.ico" SourceFile="agience.ico" />
+    <!--
+      ⛔ THIS PACKAGE CAN NEVER RESTART THE MACHINE, AND THAT IS A PROPERTY OF THE PACKAGE RATHER
+      THAN OF HOW SOMEBODY INVOKES IT. `REBOOT=ReallySuppress` set here applies to every
+      installation, repair, upgrade and uninstall, however it is started — a double-click, an
+      `msiexec` line that forgot the flag, a deployment tool. Leaving it to the caller means the one
+      invocation that omits it is the one that restarts someone's machine.
+
+      ⛔ MEASURED 2026-09-16, AND THIS IS WHY. A silent repair over a running tray returned
+      **1641 — ERROR_SUCCESS_REBOOT_INITIATED** and Windows restarted the workstation, ending the
+      user's session and every service with no prompt. [John: "NEVER reboot. we shouldn't even need
+      to have that as an option."]
+
+      ⚠ THE CAUSE IS FIXED SEPARATELY, and this does not paper over it: `StopAgience` now runs
+      before `InstallValidate`, so no file is in use when MSI decides, and there is nothing to
+      defer. This property is the guarantee that holds even if that ordering is broken again — a
+      pending file-rename is a worse outcome than a restart only when nobody notices, and the
+      check verb reports the state either way.
+
+      ⚠ NOTHING HERE JUSTIFIES A RESTART IN THE FIRST PLACE. One user-mode executable: no driver, no
+      service, no shared component, nothing loaded into another process.
+    -->
+    <Property Id="REBOOT" Value="ReallySuppress" />
+
     <Property Id="ARPPRODUCTICON" Value="AgienceIcon.ico" />
     <Property Id="ARPHELPLINK" Value="https://github.com/Agience/agience-observe" />
     <Property Id="ARPURLINFOABOUT" Value="https://agience.ai" />
@@ -156,9 +179,34 @@
                   Return="ignore" />
 
     <InstallExecuteSequence>
-      <!-- Before RemoveFiles, so the file is still there to run, and gated on this actually being
-           a removal rather than a first install. -->
-      <Custom Action="StopAgience" Before="RemoveFiles" Condition="Installed" />
+      <!--
+        ⛔ BEFORE InstallValidate, NOT BEFORE RemoveFiles — AND THE DIFFERENCE IS A REBOOT.
+        This ran `Before="RemoveFiles"` (sequence ~3500) on the reasoning that the file must still
+        be on disk to execute. True, but far too late: MSI decides which files are in use during
+        **InstallValidate** (~1400), and everything after that is the consequence.
+
+        Measured 2026-09-16, upgrading in place over a running tray:
+
+            11:45:56  RESTART MANAGER: Successfully shut down all applications...
+                      Info 1603. The file C:\Program Files\Agience\Agience.exe is being held in use.
+            11:46:27  Doing action: StopAgience          <- 31 seconds after the verdict
+            11:47:11  ReplacedInUseFiles = 1
+                      Info 1903. Scheduling reboot operation... Must reboot to complete operation.
+                      MainEngineThread is returning 1641
+
+        The shutdown worked. It simply happened after the installer had already scheduled a restart,
+        so the machine rebooted — killing every service and the user's session with no prompt,
+        because the install was silent.
+
+        ⭐ NOTHING HERE JUSTIFIES A REBOOT. This package installs one user-mode executable; there is
+        no driver, no service, no shared component. A restart was never a dependency of the product,
+        only of the order these actions ran in. Stopping the application before validation removes
+        the file-in-use condition entirely, so there is nothing for MSI to defer.
+
+        ⚠ The file is still present at InstallValidate — nothing has been removed yet — so the
+        original reason for the old placement is satisfied here too.
+      -->
+      <Custom Action="StopAgience" Before="InstallValidate" Condition="Installed" />
 
       <Custom Action="TrustRootCA" After="InstallFiles" Condition="NOT REMOVE" />
     </InstallExecuteSequence>

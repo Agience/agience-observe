@@ -387,6 +387,30 @@ public sealed class ServiceProcess : IDisposable
             // is the state a person must be told about before they try to start.
             if (PortOwnerPid is { } holder)
             {
+                // ⭐ A HELD PORT THAT ANSWERS THIS KIND'S HEALTH RULE IS OUR SERVICE, NOT A SQUATTER.
+                //
+                // ⛔ THE DOCUMENTED VERIFICATION COMMAND USED TO FAIL ON A HEALTHY NODE. `--check`
+                // runs as its own process, so it has started nothing — every service the tray owns
+                // looked foreign to it, and it exited 2 with "Foreign: 6 ports are held by other
+                // processes" while all six were serving perfectly. `build.ps1` prints that command
+                // as the way to verify an install. Measured 2026-09-16.
+                //
+                // ⚠ OWNERSHIP ANSWERS "MAY I START THIS", NOT "IS IT UP". Conflating the two is
+                // what produced a check that cannot pass — and a check that cannot pass is one
+                // people learn to skip. Health is the question being asked here, and the answer is
+                // already available: same port, this kind's own health path.
+                //
+                // ⚠ FOREIGN IS STILL REPORTED WHEN IT IS TRUE. Something else holding the port and
+                // NOT answering our health rule is exactly the case the state exists for, and it
+                // still reads that way.
+                if (await IsServingAsync(ct).ConfigureAwait(false))
+                {
+                    Set(ServiceState.Serving,
+                        $"Serving on port {Port}, under process {holder} ({NameOf(holder)}) — " +
+                        "started by another Agience process, not this one.");
+                    return;
+                }
+
                 Set(ServiceState.Foreign,
                     $"Not running here, but port {Port} is held by process {holder} ({NameOf(holder)}).");
                 return;
