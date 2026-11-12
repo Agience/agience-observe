@@ -93,10 +93,20 @@ public static class ServiceEnvironment
             // Its own public identity. This is what it stamps into every token it issues.
             env["ORIGIN_URI"] = instance.PublicUri;
 
-            // Where a browser is sent back to after signing in. Origin refuses a redirect to any
-            // base it was not told about, so an unset value is a sign-in that completes at the
-            // authority and then fails at the last hop with "Invalid redirect_uri".
-            env["FRONTEND_URI"] = instance.PublicUri;
+            // Where Origin may deliver a sign-in's code: its own pages, exactly, per client. No
+            // redirect target is built into Origin, so without this a sign-in is refused at the
+            // authorize step (403 naming CLIENT_REDIRECT_URIS). A web app this instance serves
+            // elsewhere adds its own `/auth/callback` to the list.
+            var self = instance.PublicUri.TrimEnd('/');
+            // Origin's own sign-in and passkey pages identify as `platform`; enrolled here, beside
+            // the built-in `agience-client`, or Origin refuses them as an unknown client.
+            env["PLATFORM_CLIENT_IDS"] = "platform";
+            env["CLIENT_REDIRECT_URIS"] = System.Text.Json.JsonSerializer.Serialize(
+                new Dictionary<string, string[]>
+                {
+                    ["platform"] = new[] { self + "/", self + "/passkey" },
+                    ["agience-client"] = new[] { self + "/auth/reauth/complete" },
+                });
         }
         else
         {

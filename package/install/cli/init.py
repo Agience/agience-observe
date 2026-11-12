@@ -13,8 +13,10 @@ Keypairs, one per service:
 - mantle.private.pem  / mantle.public.pem     Mantle service identity
 - chorus.private.pem  / chorus.public.pem     Chorus service identity
 - crystal.private.pem / crystal.public.pem    Crystal service identity
+- <persona>.private.pem / .public.pem         each persona Chorus hosts (aria, astra, iris, lumen,
+                                              ophan, sage, seraph; `AGIENCE_INIT_PERSONAS`)
 
-Each service reads only its own private key. All four public keys are
+Each service and persona reads only its own private key. Every public key is
 embedded inline in `authority.manifest.json`, which Mantle reads on first
 boot and seeds as the singleton `vnd.agience.authority+json` artifact.
 
@@ -49,8 +51,18 @@ DEFAULT_ORIGIN_URI = os.getenv("AUTHORITY_ORIGIN_URI", "http://origin:8080")
 DEFAULT_MANTLE_URI  = os.getenv("AUTHORITY_MANTLE_URI",  "http://mantle:8081")
 DEFAULT_CHORUS_URI = os.getenv("AUTHORITY_CHORUS_URI", "http://chorus:8082")
 DEFAULT_CRYSTAL_URI = os.getenv("AUTHORITY_CRYSTAL_URI", "http://crystal:8085")
-# lumen is the wisdom/inference tekton in chorus, not a standalone service — no URI, no keypair,
-# no trust anchor.
+# The personas Chorus hosts. Each signs as itself (its registration with Crystal is refused unless
+# signed by its own manifest anchor, review 16), so each has its own keypair and anchor, with no URI
+# of its own. 2026-11-11, the home test node: a fresh `init` made none, every persona's registration
+# was refused, and the app offered no Workflow or Timer type.
+PERSONAS = tuple(p.strip() for p in os.getenv(
+    "AGIENCE_INIT_PERSONAS", "aria,astra,iris,lumen,ophan,sage,seraph").split(",") if p.strip())
+# A persona name becomes a key file name and a trust anchor, so it is one plain label and never a
+# service's name: anything else is refused before a key is written (review, 2026-11-11).
+_PERSONA_NAME = __import__("re").compile(r"^[a-z][a-z0-9-]{0,31}$")
+_bad = [p for p in PERSONAS if not _PERSONA_NAME.match(p) or p in ("origin", "mantle", "chorus", "crystal")]
+if _bad:
+    raise SystemExit(f"[init] refusing persona names {_bad}: one lowercase label each, not a service")
 DEFAULT_ISSUER     = os.getenv("AUTHORITY_ISSUER",     DEFAULT_ORIGIN_URI)
 
 # The authority artifact's id, derived from the issuer.
@@ -196,12 +208,15 @@ def gen_service_keypairs() -> dict:
     project the right key into the right container). Public keys go into the authority manifest
     so service-to-service auth works without any HTTP fetch.
     """
-    return {
+    keys = {
         "origin": _generate_rsa_keypair("origin"),
         "mantle":  _generate_rsa_keypair("mantle"),
         "chorus": _generate_rsa_keypair("chorus"),
         "crystal": _generate_rsa_keypair("crystal"),
     }
+    for persona in PERSONAS:
+        keys[persona] = _generate_rsa_keypair(persona)
+    return keys
 
 
 def _build_anchors(service_keys: dict) -> dict:
