@@ -5,6 +5,8 @@ All notable changes to `agience-observe` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [202611.12.1] - 2026-11-12
+
 ### Fixed
 
 - The installer's `init.py` gives each persona its own keypair and manifest anchor, as `agience-cloud/deploy/init.py` does (the two are byte-identical).
