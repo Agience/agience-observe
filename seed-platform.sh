@@ -26,9 +26,27 @@ if [ -z "$TOKEN" ]; then
   exit 1
 fi
 
+# Mantle answers 202 at once with the run; the seed runs on and `follow` reports it.
+field() { python3 -c 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1]) or "")' "$1"; }
+
 echo "[seed] applying platform corpus -> ${MANTLE_URL}/system/seed ..."
-curl -fsS -X POST "${MANTLE_URL}/system/seed" \
+run=$(curl -fsS -X POST "${MANTLE_URL}/system/seed" \
   -H "Authorization: Bearer ${TOKEN}" \
-  -H "Content-Type: application/json" | sed 's/^/[seed] /'
-echo
-echo "[seed] done — users signing in now receive the platform collection grants."
+  -H "Content-Type: application/json")
+follow=$(printf '%s' "$run" | field follow)
+[ -n "$follow" ] || { echo "[seed] unexpected answer: $run" >&2; exit 1; }
+echo "[seed] run $(printf '%s' "$run" | field run_id) started; following ${follow}"
+
+state=running
+for _ in $(seq 1 600); do
+  run=$(curl -fsS "${MANTLE_URL}${follow}" -H "Authorization: Bearer ${TOKEN}")
+  state=$(printf '%s' "$run" | field state)
+  [ "$state" = running ] || break
+  sleep 2
+done
+printf '%s\n' "$run" | sed 's/^/[seed] /'
+case "$state" in
+  done) echo "[seed] done — users signing in now receive the platform collection grants." ;;
+  running) echo "[seed] still running after 20 min; follow ${MANTLE_URL}${follow}" >&2; exit 1 ;;
+  *) echo "[seed] the seed run failed" >&2; exit 1 ;;
+esac

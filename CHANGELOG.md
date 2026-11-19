@@ -5,6 +5,11 @@ All notable changes to `agience-observe` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [202611.18.1] - 2026-11-18
+
+### Changed
+- The seed script follows the seed run until it finishes, since a seed now answers `202` at once.
+
 ## [202611.12.1] - 2026-11-12
 
 ### Fixed
